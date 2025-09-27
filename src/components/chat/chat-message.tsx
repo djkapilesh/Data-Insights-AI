@@ -39,8 +39,8 @@ export function ChatMessage({ role, content, isLast, isAnalyzing }: ChatMessageP
           'w-full text-xs text-muted-foreground': role === 'system',
         })}
       >
-        {isLast && role === 'assistant' && isAnalyzing ? (
-            <div className="flex items-center gap-2">
+        {isAnalyzing && role === 'assistant' ? (
+            <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Analyzing...</span>
             </div>

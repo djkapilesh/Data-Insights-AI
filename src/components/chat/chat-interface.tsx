@@ -7,34 +7,26 @@ import { Input } from '@/components/ui/input';
 import {
   UploadCloud,
   File as FileIcon,
-  CheckCircle,
-  Loader2,
   ArrowRight,
+  Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ChatMessage } from './chat-message';
 import { Visualization } from './visualization';
+import { generateDataInsightsReport } from '@/ai/flows/generate-data-insights-report';
+import * as xlsx from 'xlsx';
 
-type Status = 'awaiting_upload' | 'processing' | 'chatting';
+type Status = 'awaiting_upload' | 'chatting';
 type Message = {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string | React.ReactNode;
 };
-type ProcessingStep = { text: string; status: 'pending' | 'in_progress' | 'done' };
-
-const initialProcessingSteps: ProcessingStep[] = [
-  { text: 'Parsing Excel file...', status: 'pending' },
-  { text: 'Cleaning and structuring data...', status: 'pending' },
-  { text: 'Handling inconsistencies and missing values...', status: 'pending' },
-  { text: 'Storing in database...', status: 'pending' },
-  { text: 'Finalizing data model...', status: 'pending' },
-];
 
 export default function ChatInterface() {
   const [status, setStatus] = useState<Status>('awaiting_upload');
   const [fileName, setFileName] = useState<string | null>(null);
-  const [processingSteps, setProcessingSteps] = useState<ProcessingStep[]>(initialProcessingSteps);
+  const [sheetData, setSheetData] = useState<any>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -50,9 +42,42 @@ export default function ChatInterface() {
   const handleFileChange = (file: File | null) => {
     if (file) {
       if (file.name.endsWith('.xls') || file.name.endsWith('.xlsx')) {
-        setFileName(file.name);
-        setStatus('processing');
-        simulateProcessing();
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = e.target?.result;
+            const workbook = xlsx.read(data, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const json = xlsx.utils.sheet_to_json(worksheet);
+            setSheetData(json);
+            setFileName(file.name);
+            setStatus('chatting');
+            setMessages([
+              {
+                id: 'welcome',
+                role: 'assistant',
+                content: `Your data from "${file.name}" has been successfully processed. What would you like to know?`,
+              },
+            ]);
+          } catch (error) {
+            console.error('Error processing file:', error);
+            toast({
+              variant: 'destructive',
+              title: 'File Processing Error',
+              description:
+                'There was an error processing your Excel file. Please ensure it is a valid file.',
+            });
+          }
+        };
+        reader.onerror = () => {
+          toast({
+            variant: 'destructive',
+            title: 'File Read Error',
+            description: 'Could not read the selected file.',
+          });
+        };
+        reader.readAsArrayBuffer(file);
       } else {
         toast({
           variant: 'destructive',
@@ -63,38 +88,6 @@ export default function ChatInterface() {
     }
   };
 
-  const simulateProcessing = () => {
-    let stepIndex = 0;
-    const interval = setInterval(() => {
-      setProcessingSteps(prev =>
-        prev.map((step, index) => {
-          if (index < stepIndex) return { ...step, status: 'done' };
-          if (index === stepIndex) return { ...step, status: 'in_progress' };
-          return step;
-        })
-      );
-
-      if (stepIndex < initialProcessingSteps.length -1) {
-          stepIndex++;
-      } else {
-        clearInterval(interval);
-        setTimeout(() => {
-            setProcessingSteps(prev => prev.map(step => ({...step, status: 'done'})))
-            setTimeout(() => {
-                setStatus('chatting');
-                setMessages([
-                    {
-                        id: 'welcome',
-                        role: 'assistant',
-                        content: `Your data from "${fileName}" has been successfully processed. What would you like to know?`,
-                    },
-                ]);
-            }, 500);
-        }, 1000);
-      }
-    }, 1200);
-  };
-  
   const handleDragOver = (e: React.DragEvent) => e.preventDefault();
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -102,55 +95,52 @@ export default function ChatInterface() {
     handleFileChange(file || null);
   };
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isAnalyzing) return;
 
     const userMessage: Message = { id: Date.now().toString(), role: 'user', content: input };
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = input;
     setInput('');
     setIsAnalyzing(true);
 
-    setTimeout(() => {
-        const systemMessage1: Message = { id: Date.now().toString() + '-1', role: 'system', content: `Translating "${input}" to SQL...`};
-        setMessages(prev => [...prev, systemMessage1]);
-        
-        setTimeout(() => {
-            const sqlQuery = `SELECT\n  category, \n  SUM(sales) AS total_sales\nFROM sales_data\nWHERE sale_date >= '2023-01-01'\nGROUP BY category\nORDER BY total_sales DESC;`;
-            const systemMessage2: Message = {
-              id: Date.now().toString() + '-2',
-              role: 'system',
-              content: (
-                <div className="font-code text-xs p-3 bg-card rounded-md border">
-                  <pre><code>{sqlQuery}</code></pre>
-                </div>
-              ),
-            };
-            setMessages(prev => [...prev, systemMessage2]);
+    try {
+      const response = await generateDataInsightsReport({
+        query: currentInput,
+        dataSummary: JSON.stringify(sheetData),
+        visualizations: [],
+      });
 
-            setTimeout(() => {
-                const systemMessage3: Message = {id: Date.now().toString() + '-3', role: 'system', content: `Executing query and generating visualizations...`};
-                setMessages(prev => [...prev, systemMessage3]);
-                
-                setTimeout(() => {
-                    const assistantResponse: Message = {
-                        id: Date.now().toString() + '-4',
-                        role: 'assistant',
-                        content: (
-                            <div className="space-y-4">
-                                <p>
-                                    Based on your request, here are the insights from your data. The analysis shows a breakdown of sales by category for the current year.
-                                </p>
-                                <Visualization />
-                            </div>
-                        )
-                    }
-                    setMessages(prev => [...prev, assistantResponse]);
-                    setIsAnalyzing(false);
-                }, 1500);
-            }, 1000);
-        }, 1000);
-    }, 500);
+      const assistantResponse: Message = {
+        id: Date.now().toString() + '-4',
+        role: 'assistant',
+        content: (
+          <div className="space-y-4">
+            <p>{response.report}</p>
+            {/* The prompt doesn't currently support generating chart data, so visualization is static for now */}
+            <Visualization />
+          </div>
+        ),
+      };
+      setMessages(prev => [...prev, assistantResponse]);
+    } catch (error) {
+      console.error('Error generating report:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Analysis Error',
+        description:
+          'There was an error analyzing your data. Please try again.',
+      });
+       const assistantError: Message = {
+        id: Date.now().toString() + '-error',
+        role: 'assistant',
+        content: "I'm sorry, I wasn't able to process that request. Please try asking in a different way."
+      };
+      setMessages(prev => [...prev, assistantError]);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const renderContent = () => {
@@ -176,32 +166,6 @@ export default function ChatInterface() {
             />
           </div>
         );
-      case 'processing':
-        return (
-          <div className="w-full h-full flex flex-col items-center justify-center text-center p-8">
-            <h2 className="text-xl font-semibold mb-2">Processing your data...</h2>
-            <p className="text-muted-foreground mb-6 flex items-center gap-2">
-              <FileIcon className="w-4 h-4" />
-              {fileName}
-            </p>
-            <div className="w-full max-w-md space-y-3">
-              {processingSteps.map((step, index) => (
-                <div key={index} className="flex items-center gap-3 text-sm">
-                  {step.status === 'done' ? (
-                    <CheckCircle className="w-5 h-5 text-green-500" />
-                  ) : step.status === 'in_progress' ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-primary" />
-                  ) : (
-                    <div className="w-5 h-5 rounded-full border-2 border-muted-foreground" />
-                  )}
-                  <span className={step.status === 'pending' ? 'text-muted-foreground' : ''}>
-                    {step.text}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
       case 'chatting':
         return (
           <div className="flex flex-col h-full w-full">
@@ -209,6 +173,9 @@ export default function ChatInterface() {
               {messages.map((message, index) => (
                 <ChatMessage key={message.id} {...message} isLast={index === messages.length - 1} isAnalyzing={isAnalyzing}/>
               ))}
+              {isAnalyzing && (
+                 <ChatMessage role="assistant" content="Analyzing..." isLast={true} isAnalyzing={true} />
+              )}
             </div>
             <form onSubmit={handleSubmit} className="mt-6 flex items-center gap-2">
               <Input
@@ -234,8 +201,14 @@ export default function ChatInterface() {
 
   return (
     <Card className="w-full max-w-4xl h-[70vh] flex flex-col shadow-lg">
-      <CardHeader>
+      <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-lg">Data Analysis Agent</CardTitle>
+        {fileName && (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+                <FileIcon className="w-4 h-4" />
+                {fileName}
+            </div>
+        )}
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden">{renderContent()}</CardContent>
     </Card>
