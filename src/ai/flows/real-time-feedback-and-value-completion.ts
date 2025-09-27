@@ -22,11 +22,11 @@ export type RealTimeFeedbackAndValueCompletionInput = z.infer<typeof RealTimeFee
 // Defines the structure for different visualization types
 const VisualizationDataSchema = z.union([
     z.object({
-        type: z.literal('barChart'),
+        type: z.enum(['barChart']),
         data: z.array(z.record(z.any())).describe("Data for the bar chart. Example: [{ name: 'Jan', total: 1000 }, ...]")
     }),
     z.object({
-        type: z.literal('table'),
+        type: z.enum(['table']),
         data: z.array(z.record(z.any())).describe("Data for the table. Example: [{ column1: 'value1', column2: 123 }, ...]"),
         columns: z.array(z.string()).describe("Array of column headers for the table. Example: ['Product', 'Sales']")
     })
