@@ -3,6 +3,7 @@
 
 import { Bot, User, Terminal, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Visualization } from './visualization';
 
 export interface Message {
   id: string;
@@ -44,7 +45,7 @@ export function ChatMessage({ role, content, isLast, isAnalyzing }: ChatMessageP
           'w-full text-xs text-muted-foreground': role === 'system',
         })}
       >
-        {isAnalyzing && role === 'assistant' && typeof content === 'string' ? (
+        {isAnalyzing && role === 'assistant' ? (
             <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>{content || "Thinking..."}</span>
@@ -58,5 +59,3 @@ export function ChatMessage({ role, content, isLast, isAnalyzing }: ChatMessageP
     </div>
   );
 }
-
-    
