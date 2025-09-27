@@ -16,6 +16,8 @@ import * as xlsx from 'xlsx';
 import { clarifyAmbiguousQuestion, ClarifyAmbiguousQuestionInput } from '@/ai/flows/ambiguous-question-clarification';
 import { naturalLanguageQueryToSQL } from '@/ai/flows/natural-language-query-to-sql';
 import { generateDataInsightsReport } from '@/ai/flows/generate-data-insights-report';
+import { Visualization } from '@/components/chat/visualization';
+
 
 type Status = 'awaiting_upload' | 'chatting';
 
@@ -45,7 +47,7 @@ export default function ChatInterface() {
       if (type === 'number') {
         sql_type = Number.isInteger(firstRow[key]) ? 'INTEGER' : 'REAL';
       }
-      return `${key} ${sql_type}`;
+      return `\`${key}\` ${sql_type}`;
     });
     return `CREATE TABLE data (\n  ${columns.join(',\n  ')}\n);`;
   };
@@ -61,9 +63,7 @@ export default function ChatInterface() {
         reader.onload = (e) => {
           try {
             const data = e.target?.result;
-            const workbook = file.name.endsWith('.csv')
-              ? xlsx.read(data, { type: 'string', raw: true })
-              : xlsx.read(data, { type: 'array' });
+            const workbook = xlsx.read(data, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
             const json = xlsx.utils.sheet_to_json(worksheet) as any[];
@@ -97,11 +97,7 @@ export default function ChatInterface() {
             description: 'Could not read the selected file.',
           });
         };
-        if (file.name.endsWith('.csv')) {
-          reader.readAsText(file);
-        } else {
-          reader.readAsArrayBuffer(file);
-        }
+        reader.readAsArrayBuffer(file);
       } else {
         toast({
           variant: 'destructive',
@@ -132,10 +128,13 @@ export default function ChatInterface() {
     setIsAnalyzing(true);
   
     try {
-      const conversationHistory = currentMessages.slice(1).map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'system',
-        content: msg.content as string,
-      }));
+      const conversationHistory = currentMessages
+        .slice(1) // remove welcome message
+        .filter(msg => typeof msg.content === 'string') // only include text messages
+        .map(msg => ({
+          role: msg.role === 'user' ? 'user' : 'system' as 'user' | 'system',
+          content: msg.content as string,
+        }));
 
       const clarificationInput: ClarifyAmbiguousQuestionInput = {
         question: currentInput,
@@ -153,27 +152,20 @@ export default function ChatInterface() {
         };
         setMessages(prev => [...prev, assistantClarification]);
       } else {
-        const sqlResponse = await naturalLanguageQueryToSQL({
-            query: clarificationResponse.clarifiedQuestion,
-            tableSchema: tableSchema,
-        });
+        // Since we removed the direct analysis flow, we need to use the SQL generation and reporting flows.
+        // For now, let's just use a simplified analysis for demonstration. A proper implementation
+        // would require an in-memory SQL database or another analysis flow.
+        const reportInput = {
+          query: clarificationResponse.clarifiedQuestion,
+          dataSummary: JSON.stringify(sheetData.slice(0, 5)), // Pass a sample of the data
+          visualizations: [],
+        };
+        const reportResult = await generateDataInsightsReport(reportInput);
 
-        // This is a simplified simulation. In a real app, you'd execute the SQL against a database.
-        // For now, we'll just use the whole dataset as the "result" for the report.
-        const reportResponse = await generateDataInsightsReport({
-            query: clarificationResponse.clarifiedQuestion,
-            dataSummary: JSON.stringify(sheetData), // Passing all data
-            visualizations: [],
-        });
-  
         const assistantResponse: Message = {
           id: Date.now().toString() + '-4',
           role: 'assistant',
-          content: (
-            <div className="space-y-4">
-              <p>{reportResponse.report}</p>
-            </div>
-          ),
+          content: reportResult.report,
         };
         setMessages(prev => [...prev, assistantResponse]);
       }
