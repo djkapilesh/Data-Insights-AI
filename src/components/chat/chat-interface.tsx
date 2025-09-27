@@ -10,6 +10,7 @@ import {
   File as FileIcon,
   ArrowRight,
   Loader2,
+  FilePlus,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ChatMessage, type Message } from './chat-message';
@@ -110,6 +111,14 @@ export default function ChatInterface() {
     }
   };
 
+  const handleNewFile = () => {
+    setStatus('awaiting_upload');
+    setFileName(null);
+    setMessages([]);
+    setJsonData([]);
+    setInput('');
+  };
+
   const handleDragOver = (e: React.DragEvent) => e.preventDefault();
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -128,7 +137,7 @@ export default function ChatInterface() {
     setIsAnalyzing(true);
   
     try {
-      const dataSummary = JSON.stringify(jsonData, null, 2);
+      const dataSummary = JSON.stringify(jsonData.slice(0, 100), null, 2); // Limit summary size
 
       const analysisInput: RealTimeFeedbackAndValueCompletionInput = {
         question: currentInput,
@@ -229,11 +238,19 @@ export default function ChatInterface() {
     <Card className="w-full max-w-4xl h-[70vh] flex flex-col shadow-lg">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-lg">Data Analysis Agent</CardTitle>
-        {fileName && (
-            <div className="text-sm text-muted-foreground flex items-center gap-2">
+        {status === 'chatting' && (
+          <div className="flex items-center gap-4">
+            {fileName && (
+              <div className="text-sm text-muted-foreground flex items-center gap-2">
                 <FileIcon className="w-4 h-4" />
                 {fileName}
-            </div>
+              </div>
+            )}
+            <Button variant="outline" size="sm" onClick={handleNewFile}>
+              <FilePlus className="mr-2 h-4 w-4" />
+              New File
+            </Button>
+          </div>
         )}
       </CardHeader>
       <CardContent className="flex-1 overflow-hidden">{renderContent()}</CardContent>
