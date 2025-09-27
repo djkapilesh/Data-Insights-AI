@@ -28,6 +28,7 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStep, setAnalysisStep] = useState<string>('');
   const { toast } = useToast();
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const sqlWorkerRef = useRef<Worker>();
@@ -172,6 +173,7 @@ export default function ChatInterface() {
     setIsAnalyzing(true);
   
     try {
+      setAnalysisStep("Clarifying question...");
       const conversationHistory = currentMessages
         .slice(1) // remove welcome message
         .filter(msg => typeof msg.content === 'string') // only include text messages
@@ -196,9 +198,11 @@ export default function ChatInterface() {
         };
         setMessages(prev => [...prev, assistantClarification]);
         setIsAnalyzing(false);
+        setAnalysisStep('');
         return;
       }
       
+      setAnalysisStep("Generating SQL...");
       const sqlResponse = await naturalLanguageQueryToSQL({
         query: clarificationResponse.clarifiedQuestion,
         tableSchema: tableSchema,
@@ -211,6 +215,7 @@ export default function ChatInterface() {
           throw new Error("SQL worker is not available.");
       }
 
+      setAnalysisStep("Executing query...");
       worker.onmessage = async (event) => {
         const { type, results, error } = event.data;
         if (type === 'exec_result') {
@@ -224,6 +229,7 @@ export default function ChatInterface() {
                 return obj;
             }), null, 2);
 
+            setAnalysisStep("Generating report...");
             const reportInput = {
                 query: clarificationResponse.clarifiedQuestion,
                 dataSummary: dataSummary,
@@ -246,6 +252,7 @@ export default function ChatInterface() {
             });
         }
         setIsAnalyzing(false);
+        setAnalysisStep('');
       };
 
       worker.postMessage({ action: 'exec', payload: { sql: sqlQuery } });
@@ -271,6 +278,7 @@ export default function ChatInterface() {
       };
       setMessages(prev => [...prev, assistantError]);
       setIsAnalyzing(false);
+      setAnalysisStep('');
     }
   };
 
@@ -305,7 +313,7 @@ export default function ChatInterface() {
                 <ChatMessage key={message.id} {...message} isLast={index === messages.length - 1} isAnalyzing={isAnalyzing}/>
               ))}
               {isAnalyzing && (
-                 <ChatMessage role="assistant" content="Thinking..." isLast={true} isAnalyzing={true} />
+                 <ChatMessage role="assistant" content={analysisStep} isLast={true} isAnalyzing={true} />
               )}
             </div>
             <form onSubmit={handleSubmit} className="mt-6 flex items-center gap-2">
@@ -345,3 +353,5 @@ export default function ChatInterface() {
     </Card>
   );
 }
+
+    
