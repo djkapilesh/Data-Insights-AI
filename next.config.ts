@@ -33,16 +33,20 @@ const nextConfig: NextConfig = {
     ],
   },
   webpack: (config, { isServer }) => {
-    config.resolve.fallback = {
-      ...config.resolve.fallback,
-      fs: false, // This is to solve the 'fs' module not found error in sql.js
-    };
+    // This is to solve the 'fs' module not found error in sql.js
+    if (!isServer) {
+        config.resolve.fallback = {
+            ...config.resolve.fallback,
+            fs: false, 
+        };
+    }
     
+    // This plugin copies the wasm file to the public directory
     config.plugins.push(
         new CopyPlugin({
             patterns: [
                 {
-                    from: path.join(__dirname, 'node_modules/sql.js/dist/sql-wasm.wasm'),
+                    from: require.resolve('sql.js/dist/sql-wasm.wasm'),
                     to: path.join(__dirname, 'public'),
                 },
             ],
