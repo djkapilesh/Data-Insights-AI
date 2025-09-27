@@ -1,6 +1,5 @@
 'use client';
 
-import { type SqlValue } from 'sql.js';
 import {
   Table,
   TableBody,
@@ -23,7 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 type QueryResultData = {
   columns: string[];
-  values: SqlValue[][];
+  values: (string | number)[][];
 };
 
 interface QueryResultProps {

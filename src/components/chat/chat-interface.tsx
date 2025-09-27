@@ -15,9 +15,8 @@ import { useToast } from '@/hooks/use-toast';
 import { ChatMessage } from './chat-message';
 import * as xlsx from 'xlsx';
 import { QueryResult } from './query-result';
-import { naturalLanguageQueryToSQL } from '@/ai/flows/natural-language-query-to-sql';
 import { realTimeFeedbackAndValueCompletion } from '@/ai/flows/real-time-feedback-and-value-completion';
-import { type SQL, type SqlValue } from 'sql.js';
+import { identifyChartingColumns } from '@/ai/flows/identify-charting-columns';
 
 type Status = 'awaiting_upload' | 'chatting';
 
@@ -29,108 +28,22 @@ type Message = {
 
 type QueryResultData = {
   columns: string[];
-  values: SqlValue[][];
+  values: (string | number)[][];
 };
+
+type DataRow = {[key: string]: string | number};
 
 export default function ChatInterface() {
   const [status, setStatus] = useState<Status>('awaiting_upload');
   const [fileName, setFileName] = useState<string | null>(null);
-  const [sheetData, setSheetData] = useState<any[] | null>(null);
-  const [tableSchema, setTableSchema] = useState<string>('');
+  const [sheetData, setSheetData] = useState<DataRow[] | null>(null);
+  const [columnNames, setColumnNames] = useState<string[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const { toast } = useToast();
   const chatContainerRef = useRef<HTMLDivElement>(null);
-  const workerRef = useRef<Worker>();
-  const [db, setDb] = useState<SQL | null>(null);
-
-  useEffect(() => {
-    workerRef.current = new Worker(
-      new URL('@/workers/sql-worker.ts', import.meta.url)
-    );
-    workerRef.current.onmessage = (event) => {
-      const { id, results, error } = event.data;
-      if (error) {
-        console.error('SQL worker error:', error);
-        toast({
-          variant: 'destructive',
-          title: 'SQL Error',
-          description: error.message,
-        });
-        const errorMessage: Message = {
-            id: Date.now().toString() + '-sql-error',
-            role: 'assistant',
-            content: `There was an error executing the SQL query: ${error.message}`
-        }
-        setMessages(prev => [...prev, errorMessage]);
-        setIsAnalyzing(false);
-        return;
-      }
-
-      if (id === 'init') {
-        setDb(results); // This is just a placeholder; we don't actually use the db object on the main thread
-        console.log('Database initialized in worker.');
-        return;
-      }
-      
-      handleQuerySuccess(results);
-    };
-    workerRef.current.postMessage({ id: 'init' });
-
-    return () => {
-      workerRef.current?.terminate();
-    };
-  }, [toast]);
-
-  const handleQuerySuccess = async (results: QueryResultData[]) => {
-    const queryResult = results[0];
-    
-    const queryResultJson = JSON.stringify({
-        columns: queryResult.columns,
-        rows: queryResult.values.map(row => 
-            queryResult.columns.reduce((acc, col, i) => {
-                acc[col] = row[i];
-                return acc;
-            }, {} as Record<string, SqlValue>)
-        )
-    });
-
-    const conversationHistory = messages.map(msg => ({
-      role: msg.role,
-      content: typeof msg.content === 'string' ? msg.content : "A visualization was displayed.",
-    })).filter(msg => msg.role !== 'system');
-    
-    // Get text analysis from AI
-    const analysisResponse = await realTimeFeedbackAndValueCompletion({
-        query: input,
-        queryResult: queryResultJson,
-        conversationHistory: conversationHistory
-    });
-
-    const assistantMessages: Message[] = [];
-
-    // Add analysis text
-    if (analysisResponse.result) {
-        assistantMessages.push({
-            id: Date.now().toString() + '-analysis',
-            role: 'assistant',
-            content: analysisResponse.result,
-        });
-    }
-
-    // Add visualization
-    assistantMessages.push({
-      id: Date.now().toString() + '-viz',
-      role: 'assistant',
-      content: <QueryResult result={queryResult} />,
-    });
-    
-    setMessages((prev) => [...prev, ...assistantMessages]);
-    setIsAnalyzing(false);
-  }
-
-
+  
   useEffect(() => {
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop =
@@ -153,34 +66,24 @@ export default function ChatInterface() {
           if (json.length === 0) {
             throw new Error("File is empty or could not be read.");
           }
-
-          const processedJson = json.map((row: any) => {
-            const newRow: any = {};
+          
+          const processedJson: DataRow[] = json.map((row: any) => {
+            const newRow: DataRow = {};
             for (const key in row) {
                 const newKey = key.replace(/[^a-zA-Z0-9_]/g, '_');
-                if (row[key] instanceof Date) {
-                    newRow[newKey] = row[key].toLocaleDateString();
-                } else {
-                    newRow[newKey] = row[key];
+                let value = row[key];
+                if (value instanceof Date) {
+                    value = value.toLocaleDateString();
                 }
+                newRow[newKey] = value;
             }
             return newRow;
           });
           
           const firstRow = processedJson[0];
-          const schema = Object.keys(firstRow)
-            .map((key) => `${key} ${typeof firstRow[key] === 'number' ? 'REAL' : 'TEXT'}`)
-            .join(', ');
-            
-          const createTableStmt = `CREATE TABLE data (${schema});`;
-          setTableSchema(createTableStmt);
+          const columns = Object.keys(firstRow);
+          setColumnNames(columns);
           setSheetData(processedJson);
-          
-          workerRef.current?.postMessage({
-              id: 'load',
-              data: processedJson,
-              schema: createTableStmt,
-          });
 
           setFileName(file.name);
           setStatus('chatting');
@@ -254,19 +157,86 @@ export default function ChatInterface() {
     setIsAnalyzing(true);
 
     try {
-      // 1. Get SQL query from AI
-      const sqlResponse = await naturalLanguageQueryToSQL({
+      // 1. Get column suggestions from AI
+      const chartColumnsResponse = await identifyChartingColumns({
         query: currentInput,
-        tableSchema: tableSchema,
+        columnNames: columnNames,
       });
 
-      const sqlQuery = sqlResponse.sqlQuery;
+      const { categoryColumn, valueColumn, isChartable } = chartColumnsResponse;
+      let queryResultForDisplay: QueryResultData | undefined;
+      let analysisInput = "The user's query did not result in a chart.";
+
+      if (isChartable && categoryColumn && valueColumn && sheetData) {
+        // 2. Process data for charting
+        const aggregationMap = new Map<string, number>();
+        const isCounting = categoryColumn === valueColumn;
+        
+        for (const row of sheetData) {
+          const category = row[categoryColumn] as string;
+          if (category === null || category === undefined) continue;
+          
+          const currentValue = aggregationMap.get(category) || 0;
+
+          if (isCounting) {
+            aggregationMap.set(category, currentValue + 1);
+          } else {
+            const value = Number(row[valueColumn]);
+            if (!isNaN(value)) {
+              aggregationMap.set(category, currentValue + value);
+            }
+          }
+        }
+
+        const aggregatedValues: (string | number)[][] = Array.from(aggregationMap.entries());
+        
+        if (aggregatedValues.length > 0) {
+          queryResultForDisplay = {
+            columns: [categoryColumn, isCounting ? 'count' : valueColumn],
+            values: aggregatedValues,
+          };
+          analysisInput = JSON.stringify(aggregatedValues.map(row => ({[categoryColumn]: row[0], [isCounting ? 'count' : valueColumn]: row[1]})));
+        }
+      }
+
+      // 3. Get text analysis from AI
+      const conversationHistory = messages.map(msg => ({
+        role: msg.role,
+        content: typeof msg.content === 'string' ? msg.content : "A visualization was displayed.",
+      })).filter(msg => msg.role !== 'system');
       
-      // 2. Execute SQL query in worker
-      workerRef.current?.postMessage({
-        id: 'exec',
-        sql: sqlQuery,
+      const analysisResponse = await realTimeFeedbackAndValueCompletion({
+          query: currentInput,
+          queryResult: analysisInput,
+          conversationHistory: conversationHistory
       });
+
+      const assistantMessages: Message[] = [];
+      if (analysisResponse.result) {
+        assistantMessages.push({
+            id: Date.now().toString() + '-analysis',
+            role: 'assistant',
+            content: analysisResponse.result,
+        });
+      }
+
+      if (queryResultForDisplay) {
+         assistantMessages.push({
+          id: Date.now().toString() + '-viz',
+          role: 'assistant',
+          content: <QueryResult result={queryResultForDisplay} />,
+        });
+      }
+      
+      if (assistantMessages.length === 0) {
+        assistantMessages.push({
+          id: Date.now().toString() + '-no-result',
+          role: 'assistant',
+          content: "I couldn't generate a specific analysis or chart for that query. Please try asking in a different way."
+        })
+      }
+
+      setMessages((prev) => [...prev, ...assistantMessages]);
 
     } catch (error) {
       console.error('Error in chat submission:', error);
@@ -281,6 +251,7 @@ export default function ChatInterface() {
         content: errorMessage,
       };
       setMessages((prev) => [...prev, assistantError]);
+    } finally {
       setIsAnalyzing(false);
     }
   };
@@ -289,10 +260,9 @@ export default function ChatInterface() {
     setStatus('awaiting_upload');
     setFileName(null);
     setSheetData(null);
-    setTableSchema('');
+    setColumnNames([]);
     setMessages([]);
     setInput('');
-    workerRef.current?.postMessage({ id: 'reset' });
   };
 
   const renderContent = () => {
