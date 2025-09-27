@@ -12,7 +12,6 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ChatMessage } from './chat-message';
-import { Visualization } from './visualization';
 import { realTimeFeedbackAndValueCompletion } from '@/ai/flows/real-time-feedback-and-value-completion';
 import * as xlsx from 'xlsx';
 
@@ -41,12 +40,18 @@ export default function ChatInterface() {
 
   const handleFileChange = (file: File | null) => {
     if (file) {
-      if (file.name.endsWith('.xls') || file.name.endsWith('.xlsx')) {
+      if (
+        file.name.endsWith('.xls') ||
+        file.name.endsWith('.xlsx') ||
+        file.name.endsWith('.csv')
+      ) {
         const reader = new FileReader();
         reader.onload = (e) => {
           try {
             const data = e.target?.result;
-            const workbook = xlsx.read(data, { type: 'array' });
+            const workbook = file.name.endsWith('.csv')
+              ? xlsx.read(data, { type: 'string', raw: true })
+              : xlsx.read(data, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
             const json = xlsx.utils.sheet_to_json(worksheet);
@@ -66,7 +71,7 @@ export default function ChatInterface() {
               variant: 'destructive',
               title: 'File Processing Error',
               description:
-                'There was an error processing your Excel file. Please ensure it is a valid file.',
+                'There was an error processing your file. Please ensure it is a valid file.',
             });
           }
         };
@@ -77,12 +82,17 @@ export default function ChatInterface() {
             description: 'Could not read the selected file.',
           });
         };
-        reader.readAsArrayBuffer(file);
+        if (file.name.endsWith('.csv')) {
+          reader.readAsText(file);
+        } else {
+          reader.readAsArrayBuffer(file);
+        }
       } else {
         toast({
           variant: 'destructive',
           title: 'Invalid File Type',
-          description: 'Please upload a valid Excel file (.xls or .xlsx).',
+          description:
+            'Please upload a valid Excel (.xls, .xlsx) or CSV (.csv) file.',
         });
       }
     }
@@ -158,13 +168,13 @@ export default function ChatInterface() {
             onClick={() => document.getElementById('file-upload-input')?.click()}
           >
             <UploadCloud className="w-16 h-16 text-muted-foreground mb-4" />
-            <h2 className="text-xl font-semibold">Upload your Excel file</h2>
+            <h2 className="text-xl font-semibold">Upload your data file</h2>
             <p className="text-muted-foreground mt-2">Drag and drop or click to browse</p>
-            <p className="text-xs text-muted-foreground mt-1">.xls or .xlsx files accepted</p>
+            <p className="text-xs text-muted-foreground mt-1">.xls, .xlsx, or .csv files accepted</p>
             <input
               id="file-upload-input"
               type="file"
-              accept=".xls,.xlsx"
+              accept=".xls,.xlsx,.csv"
               className="hidden"
               onChange={e => handleFileChange(e.target.files?.[0] || null)}
             />
