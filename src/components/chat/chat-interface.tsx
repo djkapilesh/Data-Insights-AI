@@ -13,7 +13,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { ChatMessage } from './chat-message';
 import { Visualization } from './visualization';
-import { generateDataInsightsReport } from '@/ai/flows/generate-data-insights-report';
+import { realTimeFeedbackAndValueCompletion } from '@/ai/flows/real-time-feedback-and-value-completion';
 import * as xlsx from 'xlsx';
 
 type Status = 'awaiting_upload' | 'chatting';
@@ -106,20 +106,24 @@ export default function ChatInterface() {
     setIsAnalyzing(true);
 
     try {
-      const response = await generateDataInsightsReport({
+      const response = await realTimeFeedbackAndValueCompletion({
         query: currentInput,
-        dataSummary: JSON.stringify(sheetData),
-        visualizations: [],
+        data: JSON.stringify(sheetData),
       });
+
+      let content = '';
+      if (response.result) {
+        content = response.result;
+      } else if (response.feedback) {
+        content = response.feedback;
+      }
 
       const assistantResponse: Message = {
         id: Date.now().toString() + '-4',
         role: 'assistant',
         content: (
           <div className="space-y-4">
-            <p>{response.report}</p>
-            {/* The prompt doesn't currently support generating chart data, so visualization is static for now */}
-            <Visualization />
+            <p>{content}</p>
           </div>
         ),
       };
