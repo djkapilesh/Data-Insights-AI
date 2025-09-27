@@ -1,0 +1,14 @@
+diff --git a/node_modules/sql.js/package.json b/node_modules/sql.js/package.json
+index 3578795..77595cf 100644
+--- a/node_modules/sql.js/package.json
++++ b/node_modules/sql.js/package.json
+@@ -32,7 +32,7 @@
+   "browser": {
+     "./dist/sql-wasm.js": "./dist/sql-wasm.js"
+   },
+-  "main": "dist/sql-wasm.js",
++  "main": "dist/sql-wasm-browser.js",
+   "types": "dist/sql-wasm.d.ts",
+   "directories": {
+     "test": "test"
+
