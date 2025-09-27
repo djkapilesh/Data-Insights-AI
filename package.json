@@ -11,6 +11,10 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },
+  "browser": {
+    "fs": false,
+    "path": false
+  },
   "dependencies": {
     "@genkit-ai/googleai": "^1.14.1",
     "@genkit-ai/next": "^1.14.1",

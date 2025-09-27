@@ -45,14 +45,6 @@ const nextConfig: NextConfig = {
         })
     );
 
-    // This is needed to make sure that the `fs` module is not bundled on the client
-    if (!isServer) {
-        config.resolve.fallback = {
-            ...config.resolve.fallback,
-            fs: false,
-        };
-    }
-
     return config;
   }
 };
