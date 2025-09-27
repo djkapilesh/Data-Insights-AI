@@ -18,7 +18,6 @@ import {
   realTimeFeedbackAndValueCompletion,
   RealTimeFeedbackAndValueCompletionInput,
 } from '@/ai/flows/real-time-feedback-and-value-completion';
-import { Visualization } from '@/components/chat/visualization';
 
 type Status = 'awaiting_upload' | 'chatting';
 
@@ -49,17 +48,30 @@ export default function ChatInterface() {
         reader.onload = (e) => {
           try {
             const data = e.target?.result;
-            const workbook = xlsx.read(data, { type: 'array' });
+            const workbook = xlsx.read(data, { type: 'array', cellDates: true });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
-            const json = xlsx.utils.sheet_to_json(worksheet, { defval: null }) as any[];
+            const json = xlsx.utils.sheet_to_json(worksheet, { defval: null, raw: false }) as any[];
 
             if (json.length === 0) {
               toast({ variant: 'destructive', title: 'Empty File', description: 'The uploaded file contains no data.' });
               return;
             }
 
-            setJsonData(json);
+            // Convert dates to a more readable format
+            const processedJson = json.map(row => {
+              const newRow: {[key: string]: any} = {};
+              for (const key in row) {
+                if (row[key] instanceof Date) {
+                  newRow[key] = (row[key] as Date).toLocaleDateString();
+                } else {
+                  newRow[key] = row[key];
+                }
+              }
+              return newRow;
+            });
+
+            setJsonData(processedJson);
             setFileName(file.name);
             setStatus('chatting');
             setMessages([

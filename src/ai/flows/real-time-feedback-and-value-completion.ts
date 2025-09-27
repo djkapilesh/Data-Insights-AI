@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -22,7 +23,7 @@ export type RealTimeFeedbackAndValueCompletionInput = z.infer<
 >;
 
 const RealTimeFeedbackAndValueCompletionOutputSchema = z.object({
-  report: z.string().describe('A summarized report of key findings and visualizations in Markdown format.'),
+  report: z.string().describe('A summarized report of key findings and visualizations.'),
 });
 export type RealTimeFeedbackAndValueCompletionOutput = z.infer<
   typeof RealTimeFeedbackAndValueCompletionOutputSchema
@@ -38,7 +39,7 @@ const prompt = ai.definePrompt({
   name: 'realTimeFeedbackAndValueCompletionPrompt',
   input: {schema: RealTimeFeedbackAndValueCompletionInputSchema},
   output: {schema: RealTimeFeedbackAndValueCompletionOutputSchema},
-  prompt: `You are an expert data analyst AI. Your task is to analyze the provided JSON data to answer the user's question and generate a concise, insightful report in Markdown format.
+  prompt: `You are an expert data analyst AI. Your task is to analyze the provided JSON data to answer the user's question and generate a concise, insightful report.
 
 Analyze the data and the user's question carefully. Your report should directly address the user's query.
 
@@ -46,7 +47,7 @@ Analyze the data and the user's question carefully. Your report should directly 
 - If the data is a single value or a small number of items, state the answer directly.
 - If the data is a larger table, summarize the key findings and trends relevant to the question.
 - Do not just list the raw data. Provide clear, human-readable analysis.
-- If the data appears empty or doesn't seem to contain the answer, state that you couldn't find a specific answer in the provided data.
+- Do NOT use Markdown or any other formatting like asterisks or backticks in your response.
 
 User Question:
 "{{{question}}}"
