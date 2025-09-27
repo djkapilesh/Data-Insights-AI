@@ -7,7 +7,7 @@ self.onmessage = async (event) => {
   
   try {
     if (!db) {
-      const SQL = await initSqlJs({ locateFile: file => `/sql-wasm.wasm` });
+      const SQL = await initSqlJs({ locateFile: file => `/_next/static/chunks/sql-wasm-browser.wasm` });
       db = new SQL.Database();
       self.postMessage({ id: 'init', results: 'Database initialized' });
     }
@@ -19,7 +19,7 @@ self.onmessage = async (event) => {
             if (db && data && schema) {
                 // Re-initialize DB for new file
                 db.close();
-                const SQL = await initSqlJs({ locateFile: file => `/sql-wasm.wasm` });
+                const SQL = await initSqlJs({ locateFile: file => `/_next/static/chunks/sql-wasm-browser.wasm` });
                 db = new SQL.Database();
                 
                 db.run(schema);
@@ -49,7 +49,7 @@ self.onmessage = async (event) => {
         case 'reset':
             if (db) {
                 db.close();
-                const SQL = await initSqlJs({ locateFile: file => `/sql-wasm.wasm` });
+                const SQL = await initSqlJs({ locateFile: file => `/_next/static/chunks/sql-wasm-browser.wasm` });
                 db = new SQL.Database();
                 self.postMessage({ id: 'reset', results: 'Database reset' });
             }

@@ -32,21 +32,30 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-   webpack: (config, { isServer }) => {
-    // This plugin copies the wasm file to the public directory
-    config.plugins.push(
+  webpack: (config, {isServer}) => {
+    // Necessary to make sql.js work with Next.js
+    if (!isServer) {
+      config.resolve.alias = {
+        ...config.resolve.alias,
+        'sql.js': path.resolve(
+          __dirname,
+          'node_modules/sql.js/dist/sql-wasm-browser.js'
+        ),
+      };
+      config.plugins.push(
         new CopyPlugin({
-            patterns: [
-                {
-                    from: 'node_modules/sql.js/dist/sql-wasm.wasm',
-                    to: path.join(__dirname, 'public'),
-                },
-            ],
+          patterns: [
+            {
+              from: 'node_modules/sql.js/dist/sql-wasm-browser.wasm',
+              to: 'static/chunks/sql-wasm-browser.wasm',
+            },
+          ],
         })
-    );
+      );
+    }
 
     return config;
-  }
+  },
 };
 
 export default nextConfig;
