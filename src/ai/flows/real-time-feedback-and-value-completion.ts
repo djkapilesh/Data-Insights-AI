@@ -13,7 +13,7 @@ import {z} from 'genkit';
 
 // Input schema for the flow, including the data (as a stringified JSON for simplicity) and the initial user query.
 const RealTimeFeedbackAndValueCompletionInputSchema = z.object({
-  data: z.string().describe('The uploaded data as a JSON string.'),
+  queryResult: z.string().describe('The result of the SQL query as a JSON string.'),
   query: z.string().describe('The user query in natural language.'),
   conversationHistory: z.array(z.any()).optional().describe('The history of the conversation.'),
 });
@@ -23,8 +23,6 @@ export type RealTimeFeedbackAndValueCompletionInput = z.infer<typeof RealTimeFee
 // Output schema for the flow.  This can either be the analysis result or a request for missing data.
 const RealTimeFeedbackAndValueCompletionOutputSchema = z.object({
   result: z.string().optional().describe('The analysis result, if available.'),
-  missingValues: z.array(z.string()).optional().describe('A list of missing values that need to be provided by the user.'),
-  feedback: z.string().optional().describe('Real-time feedback on the data processing and analysis.'),
 });
 export type RealTimeFeedbackAndValueCompletionOutput = z.infer<typeof RealTimeFeedbackAndValueCompletionOutputSchema>;
 
@@ -39,9 +37,9 @@ const prompt = ai.definePrompt({
   output: {schema: RealTimeFeedbackAndValueCompletionOutputSchema},
   prompt: `You are an AI data analysis assistant. You are provided with a dataset and a query from the user. You also have the conversation history.
 
-Analyze the data and the user's query. Provide a concise and accurate text-based answer.
+Your primary goal is to provide a concise and accurate text-based analysis of the provided data to answer the user's query.
 
-If there are missing values that are critical to answering the query, identify them and ask the user to provide them.
+Do not just restate the data from the query result. Provide insights, summaries, or explanations based on the data in relation to the user's question.
 
 Do not use Markdown formatting in your response.
 
@@ -50,8 +48,8 @@ Conversation History:
     {{role}}: {{content}}
 {{/each}}
 
-Dataset: {{{data}}}
-Query: {{{query}}}
+Query Result Data: {{{queryResult}}}
+User's Original Query: {{{query}}}
 `,
 });
 

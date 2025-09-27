@@ -40,24 +40,24 @@
   }
  
   .dark {
-    --background: 220 13% 9%;
+    --background: 220 13% 18%; /* Lightened background */
     --foreground: 210 40% 98%;
-    --card: 220 13% 14%;
+    --card: 220 13% 24%; /* Lightened card */
     --card-foreground: 210 40% 98%;
-    --popover: 220 13% 9%;
+    --popover: 220 13% 18%;
     --popover-foreground: 210 40% 98%;
     --primary: 180 100% 50%; /* Electric Cyan */
     --primary-foreground: 220 13% 5%;
-    --secondary: 220 13% 20%;
+    --secondary: 220 13% 30%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 220 13% 20%;
+    --muted: 220 13% 30%;
     --muted-foreground: 217 15% 65%;
     --accent: 180 100% 50%;
     --accent-foreground: 220 13% 5%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 13% 20%;
-    --input: 220 13% 20%;
+    --border: 220 13% 30%;
+    --input: 220 13% 22%;
     --ring: 180 100% 50%;
     --chart-1: 180 100% 50%;
     --chart-2: 210 100% 50%;

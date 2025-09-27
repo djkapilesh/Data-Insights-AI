@@ -18,37 +18,43 @@ export function ChatMessage({ role, children, isLast, isAnalyzing }: ChatMessage
     system: Terminal,
   }[role];
 
+  const isUser = role === 'user';
+  const isSystem = role === 'system';
+
   return (
     <div
       className={cn('flex items-start gap-4', {
-        'flex-row-reverse': role === 'user',
+        'flex-row-reverse': isUser,
       })}
     >
       <div
         className={cn('flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center', {
-          'bg-primary text-primary-foreground': role === 'assistant',
-          'bg-secondary text-secondary-foreground': role === 'user',
-          'bg-muted text-muted-foreground': role === 'system',
+          'bg-primary text-primary-foreground': !isUser && !isSystem,
+          'bg-secondary text-secondary-foreground': isUser,
+          'bg-muted text-muted-foreground': isSystem,
         })}
       >
         <Icon className="w-5 h-5" />
       </div>
       <div
         className={cn('p-3 rounded-lg max-w-[85%] w-fit', {
-          'bg-primary/10': role === 'assistant',
-          'bg-secondary': role === 'user',
-          'w-full text-xs text-muted-foreground': role === 'system',
+          'bg-primary/10': !isUser,
+          'bg-secondary': isUser,
+          'w-full text-xs text-muted-foreground': isSystem,
+          'p-0 bg-transparent': typeof children !== 'string' // No padding/bg for complex components
         })}
       >
-        {isAnalyzing && role === 'assistant' ? (
-            <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Analyzing...</span>
-            </div>
+        {isAnalyzing && role === 'assistant' && React.Children.count(children) === 1 && typeof children === 'string' && children === "Analyzing..." ? (
+          <div className="flex items-center gap-2 text-muted-foreground p-3 bg-primary/10 rounded-lg">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            <span>Analyzing...</span>
+          </div>
         ) : (
           <div className="flex flex-col gap-4">
             {React.Children.toArray(children).filter(Boolean).map((child, i) => (
-                <div key={i} className="whitespace-pre-wrap">{child}</div>
+                <div key={i} className={cn("whitespace-pre-wrap", {
+                  'p-3 rounded-lg bg-primary/10': typeof child === 'string'
+                })}>{child}</div>
             ))}
           </div>
         )}

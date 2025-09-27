@@ -13,10 +13,11 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ChatMessage } from './chat-message';
-import {
-  realTimeFeedbackAndValueCompletion,
-} from '@/ai/flows/real-time-feedback-and-value-completion';
 import * as xlsx from 'xlsx';
+import { QueryResult } from './query-result';
+import { naturalLanguageQueryToSQL } from '@/ai/flows/natural-language-query-to-sql';
+import { realTimeFeedbackAndValueCompletion } from '@/ai/flows/real-time-feedback-and-value-completion';
+import { type SQL, type SqlValue } from 'sql.js';
 
 type Status = 'awaiting_upload' | 'chatting';
 
@@ -26,34 +27,114 @@ type Message = {
   content: string | React.ReactNode;
 };
 
-// Helper to convert Excel serial date to a readable format
-const excelDateToJSDate = (serial: number) => {
-  const utc_days = Math.floor(serial - 25569);
-  const utc_value = utc_days * 86400;
-  const date_info = new Date(utc_value * 1000);
-  const fractional_day = serial - Math.floor(serial) + 0.0000001;
-  let total_seconds = Math.floor(86400 * fractional_day);
-  const seconds = total_seconds % 60;
-  total_seconds -= seconds;
-  const hours = Math.floor(total_seconds / (60 * 60));
-  const minutes = Math.floor(total_seconds / 60) % 60;
-  return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate(), hours, minutes, seconds);
+type QueryResultData = {
+  columns: string[];
+  values: SqlValue[][];
 };
-
 
 export default function ChatInterface() {
   const [status, setStatus] = useState<Status>('awaiting_upload');
   const [fileName, setFileName] = useState<string | null>(null);
-  const [sheetData, setSheetData] = useState<any>(null);
+  const [sheetData, setSheetData] = useState<any[] | null>(null);
+  const [tableSchema, setTableSchema] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const { toast } = useToast();
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const workerRef = useRef<Worker>();
+  const [db, setDb] = useState<SQL | null>(null);
+
+  useEffect(() => {
+    workerRef.current = new Worker(
+      new URL('@/workers/sql-worker.ts', import.meta.url)
+    );
+    workerRef.current.onmessage = (event) => {
+      const { id, results, error } = event.data;
+      if (error) {
+        console.error('SQL worker error:', error);
+        toast({
+          variant: 'destructive',
+          title: 'SQL Error',
+          description: error.message,
+        });
+        const errorMessage: Message = {
+            id: Date.now().toString() + '-sql-error',
+            role: 'assistant',
+            content: `There was an error executing the SQL query: ${error.message}`
+        }
+        setMessages(prev => [...prev, errorMessage]);
+        setIsAnalyzing(false);
+        return;
+      }
+
+      if (id === 'init') {
+        setDb(results); // This is just a placeholder; we don't actually use the db object on the main thread
+        console.log('Database initialized in worker.');
+        return;
+      }
+      
+      handleQuerySuccess(results);
+    };
+    workerRef.current.postMessage({ id: 'init' });
+
+    return () => {
+      workerRef.current?.terminate();
+    };
+  }, [toast]);
+
+  const handleQuerySuccess = async (results: QueryResultData[]) => {
+    const queryResult = results[0];
+    
+    const queryResultJson = JSON.stringify({
+        columns: queryResult.columns,
+        rows: queryResult.values.map(row => 
+            queryResult.columns.reduce((acc, col, i) => {
+                acc[col] = row[i];
+                return acc;
+            }, {} as Record<string, SqlValue>)
+        )
+    });
+
+    const conversationHistory = messages.map(msg => ({
+      role: msg.role,
+      content: typeof msg.content === 'string' ? msg.content : "A visualization was displayed.",
+    })).filter(msg => msg.role !== 'system');
+    
+    // Get text analysis from AI
+    const analysisResponse = await realTimeFeedbackAndValueCompletion({
+        query: input,
+        queryResult: queryResultJson,
+        conversationHistory: conversationHistory
+    });
+
+    const assistantMessages: Message[] = [];
+
+    // Add analysis text
+    if (analysisResponse.result) {
+        assistantMessages.push({
+            id: Date.now().toString() + '-analysis',
+            role: 'assistant',
+            content: analysisResponse.result,
+        });
+    }
+
+    // Add visualization
+    assistantMessages.push({
+      id: Date.now().toString() + '-viz',
+      role: 'assistant',
+      content: <QueryResult result={queryResult} />,
+    });
+    
+    setMessages((prev) => [...prev, ...assistantMessages]);
+    setIsAnalyzing(false);
+  }
+
 
   useEffect(() => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
     }
   }, [messages]);
 
@@ -64,28 +145,50 @@ export default function ChatInterface() {
           const workbook = xlsx.read(data, { type, cellDates: true });
           const sheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
-          const json = xlsx.utils.sheet_to_json(worksheet, { raw: false, dateNF: 'm/d/yyyy' });
-          
+          const json: any[] = xlsx.utils.sheet_to_json(worksheet, {
+            raw: false,
+            dateNF: 'm/d/yyyy',
+          });
+
+          if (json.length === 0) {
+            throw new Error("File is empty or could not be read.");
+          }
+
           const processedJson = json.map((row: any) => {
             const newRow: any = {};
             for (const key in row) {
-              if (row[key] instanceof Date) {
-                 newRow[key] = row[key].toLocaleDateString();
-              } else {
-                newRow[key] = row[key];
-              }
+                const newKey = key.replace(/[^a-zA-Z0-9_]/g, '_');
+                if (row[key] instanceof Date) {
+                    newRow[newKey] = row[key].toLocaleDateString();
+                } else {
+                    newRow[newKey] = row[key];
+                }
             }
             return newRow;
           });
-
+          
+          const firstRow = processedJson[0];
+          const schema = Object.keys(firstRow)
+            .map((key) => `${key} ${typeof firstRow[key] === 'number' ? 'REAL' : 'TEXT'}`)
+            .join(', ');
+            
+          const createTableStmt = `CREATE TABLE data (${schema});`;
+          setTableSchema(createTableStmt);
           setSheetData(processedJson);
+          
+          workerRef.current?.postMessage({
+              id: 'load',
+              data: processedJson,
+              schema: createTableStmt,
+          });
+
           setFileName(file.name);
           setStatus('chatting');
           setMessages([
             {
               id: 'welcome',
               role: 'assistant',
-              content: `Your data from "${file.name}" has been successfully processed. What would you like to know?`,
+              content: `Your data from "${file.name}" has been successfully loaded. What would you like to know?`,
             },
           ]);
         } catch (error) {
@@ -93,25 +196,37 @@ export default function ChatInterface() {
           toast({
             variant: 'destructive',
             title: 'File Processing Error',
-            description: 'There was an error processing your file. Please ensure it is a valid .xls, .xlsx, or .csv file.',
+            description:
+              'There was an error processing your file. Please ensure it is a valid .xls, .xlsx, or .csv file and contains data.',
           });
         }
       };
-      
+
       const reader = new FileReader();
       if (file.name.endsWith('.xls') || file.name.endsWith('.xlsx')) {
         reader.onload = (e) => processFile(e.target?.result, 'array');
-        reader.onerror = () => toast({ variant: 'destructive', title: 'File Read Error', description: 'Could not read the selected file.' });
+        reader.onerror = () =>
+          toast({
+            variant: 'destructive',
+            title: 'File Read Error',
+            description: 'Could not read the selected file.',
+          });
         reader.readAsArrayBuffer(file);
       } else if (file.name.endsWith('.csv')) {
-        reader.onload = (e) => processFile(e.target?.result, 'string');
-        reader.onerror = () => toast({ variant: 'destructive', title: 'File Read Error', description: 'Could not read the selected file.' });
+        reader.onload = (e) => processFile(e.target?.result as string, 'string');
+        reader.onerror = () =>
+          toast({
+            variant: 'destructive',
+            title: 'File Read Error',
+            description: 'Could not read the selected file.',
+          });
         reader.readAsText(file);
       } else {
         toast({
           variant: 'destructive',
           title: 'Invalid File Type',
-          description: 'Please upload a valid Excel or CSV file (.xls, .xlsx, or .csv).',
+          description:
+            'Please upload a valid Excel or CSV file (.xls, .xlsx, or .csv).',
         });
       }
     }
@@ -126,64 +241,46 @@ export default function ChatInterface() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || isAnalyzing) return;
+    if (!input.trim() || isAnalyzing || !sheetData) return;
 
-    const userMessage: Message = { id: Date.now().toString(), role: 'user', content: input };
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      role: 'user',
+      content: input,
+    };
+    setMessages((prevMessages) => [...prevMessages, userMessage]);
     const currentInput = input;
     setInput('');
     setIsAnalyzing(true);
 
     try {
-      const conversationHistory = newMessages.map(msg => ({
-        role: msg.role,
-        content: typeof msg.content === 'string' ? msg.content : "A visualization was displayed.",
-      })).filter(msg => msg.role !== 'system');
-
-      const response = await realTimeFeedbackAndValueCompletion({
+      // 1. Get SQL query from AI
+      const sqlResponse = await naturalLanguageQueryToSQL({
         query: currentInput,
-        data: JSON.stringify(sheetData),
-        conversationHistory: conversationHistory,
+        tableSchema: tableSchema,
       });
-      
-      let assistantResponse: Message;
 
-      if (response.result) {
-        assistantResponse = {
-          id: Date.now().toString() + '-2',
-          role: 'assistant',
-          content: response.result || '',
-        };
-      } else if (response.missingValues && response.missingValues.length > 0) {
-        assistantResponse = {
-            id: Date.now().toString() + '-missing',
-            role: 'assistant',
-            content: response.feedback || `Missing values found: ${response.missingValues.join(', ')}. Please provide these values to continue the analysis. `,
-        };
-      }
-       else {
-        assistantResponse = {
-            id: Date.now().toString() + '-3',
-            role: 'assistant',
-            content: "I'm sorry, I couldn't find an answer to your question. Please try rephrasing it.",
-        };
-      }
-      setMessages(prev => [...prev, assistantResponse]);
+      const sqlQuery = sqlResponse.sqlQuery;
+      
+      // 2. Execute SQL query in worker
+      workerRef.current?.postMessage({
+        id: 'exec',
+        sql: sqlQuery,
+      });
 
     } catch (error) {
-      console.error('Error generating report:', error);
-      const errorMessage = error instanceof Error && error.message.includes('503')
-        ? "The analysis service is temporarily unavailable. Please try again in a moment."
-        : "I'm sorry, I wasn't able to process that request. Please try asking in a different way.";
+      console.error('Error in chat submission:', error);
+      const errorMessage =
+        error instanceof Error && error.message.includes('503')
+          ? 'The analysis service is temporarily unavailable. Please try again in a moment.'
+          : "I'm sorry, I wasn't able to process that request. Please try asking in a different way.";
 
       const assistantError: Message = {
         id: Date.now().toString() + '-error',
         role: 'assistant',
-        content: errorMessage
+        content: errorMessage,
       };
-      setMessages(prev => [...prev, assistantError]);
-    } finally {
+      setMessages((prev) => [...prev, assistantError]);
       setIsAnalyzing(false);
     }
   };
@@ -192,8 +289,10 @@ export default function ChatInterface() {
     setStatus('awaiting_upload');
     setFileName(null);
     setSheetData(null);
+    setTableSchema('');
     setMessages([]);
     setInput('');
+    workerRef.current?.postMessage({ id: 'reset' });
   };
 
   const renderContent = () => {
@@ -208,21 +307,28 @@ export default function ChatInterface() {
           >
             <UploadCloud className="w-16 h-16 text-muted-foreground mb-4" />
             <h2 className="text-xl font-semibold">Upload your data file</h2>
-            <p className="text-muted-foreground mt-2">Drag and drop or click to browse</p>
-            <p className="text-xs text-muted-foreground mt-1">.xls, .xlsx, or .csv files accepted</p>
+            <p className="text-muted-foreground mt-2">
+              Drag and drop or click to browse
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              .xls, .xlsx, or .csv files accepted
+            </p>
             <input
               id="file-upload-input"
               type="file"
               accept=".xls,.xlsx,.csv"
               className="hidden"
-              onChange={e => handleFileChange(e.target.files?.[0] || null)}
+              onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
             />
           </div>
         );
       case 'chatting':
         return (
           <div className="flex flex-col h-full w-full">
-            <div ref={chatContainerRef} className="flex-1 overflow-y-auto pr-4 -mr-4 space-y-6">
+            <div
+              ref={chatContainerRef}
+              className="flex-1 overflow-y-auto pr-4 -mr-4 space-y-6"
+            >
               {messages.map((message, index) => (
                 <ChatMessage
                   key={message.id}
@@ -234,15 +340,15 @@ export default function ChatInterface() {
                 </ChatMessage>
               ))}
               {isAnalyzing && (
-                 <ChatMessage role="assistant" isLast={true} isAnalyzing={true} >
-                    Analyzing...
-                 </ChatMessage>
+                <ChatMessage role="assistant" isLast={true} isAnalyzing={true}>
+                  Analyzing...
+                </ChatMessage>
               )}
             </div>
             <form onSubmit={handleSubmit} className="mt-6 flex items-center gap-2">
               <Input
                 value={input}
-                onChange={e => setInput(e.target.value)}
+                onChange={(e) => setInput(e.target.value)}
                 placeholder="Ask a question about your data..."
                 className="flex-1 bg-input"
                 disabled={isAnalyzing}
@@ -262,23 +368,23 @@ export default function ChatInterface() {
   };
 
   return (
-    <Card className="w-full max-w-4xl h-[80vh] flex flex-col shadow-lg bg-card">
+    <Card className="w-full max-w-4xl h-[80vh] flex flex-col shadow-lg bg-card/50 backdrop-blur-lg">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-lg">Data Analysis Agent</CardTitle>
         <div className="flex items-center gap-2">
-            {fileName && (
-                <div className="text-sm text-muted-foreground flex items-center gap-2">
-                    <FileIcon className="w-4 h-4" />
-                    {fileName}
-                </div>
-            )}
-            <Button variant="ghost" size="sm" onClick={handleReset}>
-                <FilePlus className="w-4 h-4 mr-2" />
-                New File
-            </Button>
+          {fileName && (
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <FileIcon className="w-4 h-4" />
+              {fileName}
+            </div>
+          )}
+          <Button variant="ghost" size="sm" onClick={handleReset}>
+            <FilePlus className="w-4 h-4 mr-2" />
+            New File
+          </Button>
         </div>
       </CardHeader>
-      <CardContent className="flex-1 overflow-hidden">{renderContent()}</CardContent>
+      <CardContent className="flex-1 overflow-hidden p-6">{renderContent()}</CardContent>
     </Card>
   );
 }
