@@ -1,6 +1,4 @@
 import { Logo } from '@/components/icons';
-import { Button } from '@/components/ui/button';
-import { Mail } from 'lucide-react';
 
 export default function Header() {
   return (
@@ -12,12 +10,6 @@ export default function Header() {
             Data Insights AI
           </h1>
         </div>
-        <a href="mailto:vikas@bulba.app?subject=Data%20Insights%20AI%20-%20Links&body=WebApp%20Link%3A%20[INSERT_APP_URL]%0AGitHub%20Repo%3A%20[INSERT_GITHUB_REPO_URL]">
-          <Button variant="outline" size="sm">
-            <Mail className="mr-2 h-4 w-4" />
-            Email Results
-          </Button>
-        </a>
       </div>
     </header>
   );

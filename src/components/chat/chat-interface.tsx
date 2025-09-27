@@ -13,7 +13,6 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ChatMessage } from './chat-message';
-import { Visualization } from './visualization';
 import { realTimeFeedbackAndValueCompletion } from '@/ai/flows/real-time-feedback-and-value-completion';
 import * as xlsx from 'xlsx';
 
@@ -62,12 +61,13 @@ export default function ChatInterface() {
           const workbook = xlsx.read(data, { type });
           const sheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
-          const json = xlsx.utils.sheet_to_json(worksheet, { raw: false }); // Use raw: false to get formatted dates
+          const json = xlsx.utils.sheet_to_json(worksheet, { raw: false, dateNF: 'm/d/yyyy' });
           
-          // Post-process for dates if xlsx doesn't handle it
           const processedJson = json.map((row: any) => {
             const newRow: any = {};
             for (const key in row) {
+              // The library might still return serial numbers for some date formats.
+              // This is a fallback to handle those cases.
               if (typeof row[key] === 'number' && key.toLowerCase().includes('date')) {
                 const jsDate = excelDateToJSDate(row[key]);
                 if (!isNaN(jsDate.getTime())) {
@@ -81,6 +81,7 @@ export default function ChatInterface() {
             }
             return newRow;
           });
+
 
           setSheetData(processedJson);
           setFileName(file.name);
@@ -133,27 +134,45 @@ export default function ChatInterface() {
     if (!input.trim() || isAnalyzing) return;
 
     const userMessage: Message = { id: Date.now().toString(), role: 'user', content: input };
-    setMessages(prev => [...prev, userMessage]);
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
     const currentInput = input;
     setInput('');
     setIsAnalyzing(true);
 
     try {
+      const conversationHistory = newMessages.filter(msg => typeof msg.content === 'string');
+
       const response = await realTimeFeedbackAndValueCompletion({
         query: currentInput,
         data: JSON.stringify(sheetData),
+        conversationHistory: conversationHistory,
       });
+      
+      let assistantResponse: Message;
 
-      const assistantResponse: Message = {
-        id: Date.now().toString() + '-4',
-        role: 'assistant',
-        content: (
-          <div className="space-y-4">
-            <p>{response.report}</p>
-          </div>
-        ),
-      };
+      if (response.result) {
+        assistantResponse = {
+          id: Date.now().toString() + '-2',
+          role: 'assistant',
+          content: response.result,
+        };
+      } else if (response.missingValues && response.missingValues.length > 0) {
+        assistantResponse = {
+            id: Date.now().toString() + '-missing',
+            role: 'assistant',
+            content: response.feedback || `Missing values found: ${response.missingValues.join(', ')}. Please provide these values to continue the analysis. `,
+        };
+      }
+       else {
+        assistantResponse = {
+            id: Date.now().toString() + '-3',
+            role: 'assistant',
+            content: "I'm sorry, I couldn't find an answer to your question. Please try rephrasing it.",
+        };
+      }
       setMessages(prev => [...prev, assistantResponse]);
+
     } catch (error) {
       console.error('Error generating report:', error);
       const errorMessage = error instanceof Error && error.message.includes('503')

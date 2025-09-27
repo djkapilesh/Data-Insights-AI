@@ -1,4 +1,3 @@
-// RealTimeFeedbackAndValueCompletion flow implementation
 'use server';
 /**
  * @fileOverview Implements a Genkit flow that provides real-time feedback during data processing and analysis,
@@ -16,6 +15,7 @@ import {z} from 'genkit';
 const RealTimeFeedbackAndValueCompletionInputSchema = z.object({
   data: z.string().describe('The uploaded data as a JSON string.'),
   query: z.string().describe('The user query in natural language.'),
+  conversationHistory: z.array(z.any()).optional().describe('The history of the conversation.'),
 });
 export type RealTimeFeedbackAndValueCompletionInput = z.infer<typeof RealTimeFeedbackAndValueCompletionInputSchema>;
 
@@ -32,20 +32,24 @@ export async function realTimeFeedbackAndValueCompletion(input: RealTimeFeedback
   return realTimeFeedbackAndValueCompletionFlow(input);
 }
 
-const realTimeFeedbackAndValueCompletionPrompt = ai.definePrompt({
+const prompt = ai.definePrompt({
   name: 'realTimeFeedbackAndValueCompletionPrompt',
   input: {schema: RealTimeFeedbackAndValueCompletionInputSchema},
   output: {schema: RealTimeFeedbackAndValueCompletionOutputSchema},
-  prompt: `You are an AI data analysis assistant.  You are provided with a dataset and a query from the user.
+  prompt: `You are an AI data analysis assistant. You are provided with a dataset and a query from the user. You also have the conversation history.
+
+        Analyze the data and the user's query. Provide a concise and accurate answer based on the data. Do not use Markdown formatting in your response.
+
+        Conversation History:
+        {{#each conversationHistory}}
+            {{role}}: {{content}}
+        {{/each}}
 
         Dataset: {{{data}}}
         Query: {{{query}}}
 
-        First, provide feedback to the user on the status of the data processing and analysis.
-        If there are missing values, identify them and ask the user to provide them.
-        If all values are present, analyze the data and provide a summarized result in a formatted way that is suitable for display.
-        Missing values: Output a JSON array of the missing values. If no values are missing, this field should be omitted.
-        Result: Output a formatted string with the results of the analysis, or omit if missing values need to be provided first.
+        Based on the user's query, analyze the provided JSON data and generate a clear, text-based report summarizing your findings. Do not use asterisks or any other Markdown formatting.
+        If there are missing values that are critical to answering the query, identify them and ask the user to provide them.
 `,
 });
 
@@ -57,41 +61,7 @@ const realTimeFeedbackAndValueCompletionFlow = ai.defineFlow(
     outputSchema: RealTimeFeedbackAndValueCompletionOutputSchema,
   },
   async input => {
-    // In a real application, this is where data validation, cleaning, and transformation would occur.
-    // For now, we simulate the process and check for missing values.
-    const data = JSON.parse(input.data);
-    const missingValues: string[] = [];
-    if (Array.isArray(data)) {
-      data.forEach(item => {
-        for (const key in item) {
-          if (item[key] === null || item[key] === undefined) {
-            missingValues.push(key);
-          }
-        }
-      });
-    }
-
-    let promptResult;
-
-    if (missingValues.length > 0) {
-      promptResult = await realTimeFeedbackAndValueCompletionPrompt({
-        ...input,
-        data: input.data,
-      });
-      return {
-        missingValues: missingValues,
-        feedback: `Missing values found: ${missingValues.join(', ')}. Please provide these values to continue the analysis. ` + promptResult.output?.feedback,
-      };
-    } else {
-      // Simulate data analysis and generate a result.
-      promptResult = await realTimeFeedbackAndValueCompletionPrompt({
-        ...input,
-        data: input.data,
-      });
-      return {
-        result: `Analysis complete.  ` + promptResult.output?.result,
-        feedback: 'Data analysis completed successfully.',
-      };
-    }
+    const {output} = await prompt(input);
+    return output!;
   }
 );
