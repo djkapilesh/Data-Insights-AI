@@ -13,14 +13,21 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { ChatMessage } from './chat-message';
-import { realTimeFeedbackAndValueCompletion } from '@/ai/flows/real-time-feedback-and-value-completion';
+import {
+  realTimeFeedbackAndValueCompletion,
+  type RealTimeFeedbackAndValueCompletionOutput,
+} from '@/ai/flows/real-time-feedback-and-value-completion';
 import * as xlsx from 'xlsx';
+import { Visualization } from './visualization';
 
 type Status = 'awaiting_upload' | 'chatting';
+type VisualizationData = RealTimeFeedbackAndValueCompletionOutput['visualization'];
+
 type Message = {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string | React.ReactNode;
+  visualization?: VisualizationData;
 };
 
 // Helper to convert Excel serial date to a readable format
@@ -58,7 +65,7 @@ export default function ChatInterface() {
     if (file) {
       const processFile = (data: any, type: 'array' | 'string') => {
         try {
-          const workbook = xlsx.read(data, { type });
+          const workbook = xlsx.read(data, { type, cellDates: true });
           const sheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[sheetName];
           const json = xlsx.utils.sheet_to_json(worksheet, { raw: false, dateNF: 'm/d/yyyy' });
@@ -66,22 +73,14 @@ export default function ChatInterface() {
           const processedJson = json.map((row: any) => {
             const newRow: any = {};
             for (const key in row) {
-              // The library might still return serial numbers for some date formats.
-              // This is a fallback to handle those cases.
-              if (typeof row[key] === 'number' && key.toLowerCase().includes('date')) {
-                const jsDate = excelDateToJSDate(row[key]);
-                if (!isNaN(jsDate.getTime())) {
-                   newRow[key] = jsDate.toLocaleDateString();
-                } else {
-                   newRow[key] = row[key];
-                }
+              if (row[key] instanceof Date) {
+                 newRow[key] = row[key].toLocaleDateString();
               } else {
                 newRow[key] = row[key];
               }
             }
             return newRow;
           });
-
 
           setSheetData(processedJson);
           setFileName(file.name);
@@ -141,7 +140,10 @@ export default function ChatInterface() {
     setIsAnalyzing(true);
 
     try {
-      const conversationHistory = newMessages.filter(msg => typeof msg.content === 'string');
+      const conversationHistory = newMessages.map(msg => ({
+        role: msg.role,
+        content: typeof msg.content === 'string' ? msg.content : "A visualization was displayed.",
+      })).filter(msg => msg.role !== 'system');
 
       const response = await realTimeFeedbackAndValueCompletion({
         query: currentInput,
@@ -151,11 +153,12 @@ export default function ChatInterface() {
       
       let assistantResponse: Message;
 
-      if (response.result) {
+      if (response.result || response.visualization) {
         assistantResponse = {
           id: Date.now().toString() + '-2',
           role: 'assistant',
-          content: response.result,
+          content: response.result || '',
+          visualization: response.visualization,
         };
       } else if (response.missingValues && response.missingValues.length > 0) {
         assistantResponse = {
@@ -203,7 +206,7 @@ export default function ChatInterface() {
       case 'awaiting_upload':
         return (
           <div
-            className="w-full h-full border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-center p-8 cursor-pointer hover:border-primary transition-colors bg-background/20"
+            className="w-full h-full border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-center p-8 cursor-pointer hover:border-primary transition-colors bg-card"
             onDragOver={handleDragOver}
             onDrop={handleDrop}
             onClick={() => document.getElementById('file-upload-input')?.click()}
@@ -226,10 +229,20 @@ export default function ChatInterface() {
           <div className="flex flex-col h-full w-full">
             <div ref={chatContainerRef} className="flex-1 overflow-y-auto pr-4 -mr-4 space-y-6">
               {messages.map((message, index) => (
-                <ChatMessage key={message.id} {...message} isLast={index === messages.length - 1} isAnalyzing={isAnalyzing}/>
+                <ChatMessage
+                  key={message.id}
+                  role={message.role}
+                  isLast={index === messages.length - 1}
+                  isAnalyzing={isAnalyzing}
+                >
+                  {message.content}
+                  {message.visualization && <Visualization data={message.visualization} />}
+                </ChatMessage>
               ))}
               {isAnalyzing && (
-                 <ChatMessage role="assistant" content="Analyzing..." isLast={true} isAnalyzing={true} />
+                 <ChatMessage role="assistant" isLast={true} isAnalyzing={true} >
+                    Analyzing...
+                 </ChatMessage>
               )}
             </div>
             <form onSubmit={handleSubmit} className="mt-6 flex items-center gap-2">
@@ -237,10 +250,10 @@ export default function ChatInterface() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 placeholder="Ask a question about your data..."
-                className="flex-1 bg-background/30"
+                className="flex-1 bg-input"
                 disabled={isAnalyzing}
               />
-              <Button type="submit" disabled={isAnalyzing || !input.trim()} variant="secondary">
+              <Button type="submit" disabled={isAnalyzing || !input.trim()}>
                 {isAnalyzing ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
@@ -255,7 +268,7 @@ export default function ChatInterface() {
   };
 
   return (
-    <Card className="w-full max-w-4xl h-[80vh] flex flex-col shadow-lg bg-card/50 backdrop-blur-lg">
+    <Card className="w-full max-w-4xl h-[80vh] flex flex-col shadow-lg bg-card">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-lg">Data Analysis Agent</CardTitle>
         <div className="flex items-center gap-2">

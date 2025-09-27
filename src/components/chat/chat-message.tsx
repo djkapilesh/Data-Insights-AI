@@ -2,15 +2,16 @@
 
 import { Bot, User, Terminal, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import React from 'react';
 
 interface ChatMessageProps {
   role: 'user' | 'assistant' | 'system';
-  content: string | React.ReactNode;
+  children: React.ReactNode;
   isLast?: boolean;
   isAnalyzing?: boolean;
 }
 
-export function ChatMessage({ role, content, isLast, isAnalyzing }: ChatMessageProps) {
+export function ChatMessage({ role, children, isLast, isAnalyzing }: ChatMessageProps) {
   const Icon = {
     user: User,
     assistant: Bot,
@@ -33,7 +34,7 @@ export function ChatMessage({ role, content, isLast, isAnalyzing }: ChatMessageP
         <Icon className="w-5 h-5" />
       </div>
       <div
-        className={cn('p-3 rounded-lg max-w-[80%]', {
+        className={cn('p-3 rounded-lg max-w-[85%] w-fit', {
           'bg-primary/10': role === 'assistant',
           'bg-secondary': role === 'user',
           'w-full text-xs text-muted-foreground': role === 'system',
@@ -44,10 +45,12 @@ export function ChatMessage({ role, content, isLast, isAnalyzing }: ChatMessageP
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span>Analyzing...</span>
             </div>
-        ) : typeof content === 'string' ? (
-          <p className="whitespace-pre-wrap">{content}</p>
         ) : (
-          content
+          <div className="flex flex-col gap-4">
+            {React.Children.toArray(children).filter(Boolean).map((child, i) => (
+                <div key={i} className="whitespace-pre-wrap">{child}</div>
+            ))}
+          </div>
         )}
       </div>
     </div>
