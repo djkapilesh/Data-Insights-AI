@@ -1,3 +1,4 @@
+
 'use client';
 
 import { useState, useRef, useEffect, type FormEvent } from 'react';
@@ -68,10 +69,17 @@ export default function ChatInterface() {
     
     const columns = headers.map((header, index) => {
       const key = Object.keys(data[0])[index];
-      const firstValue = data[0][key];
-      let sql_type = 'TEXT';
-      if (typeof firstValue === 'number') {
-        sql_type = Number.isInteger(firstValue) ? 'INTEGER' : 'REAL';
+      let sql_type = 'TEXT'; // Default to TEXT
+      
+      // Look for first non-null value to determine type
+      for (const row of data) {
+        const value = row[key];
+        if (value !== null && value !== undefined) {
+          if (typeof value === 'number') {
+            sql_type = Number.isInteger(value) ? 'INTEGER' : 'REAL';
+          }
+          break; // Found type, no need to check further for this column
+        }
       }
       return `\`${header}\` ${sql_type}`;
     });
@@ -100,17 +108,6 @@ export default function ChatInterface() {
             }
 
             const schema = generateSchema(json);
-            
-            // Sanitize data keys to match schema
-            const sanitizedJson = json.map(row => {
-              const newRow: {[key: string]: any} = {};
-              for (const key in row) {
-                const sanitizedKey = key.replace(/[^a-zA-Z0-9_]/g, '_');
-                newRow[sanitizedKey] = row[key];
-              }
-              return newRow;
-            });
-            
             setTableSchema(schema);
             
             sqlWorkerRef.current?.postMessage({
@@ -219,7 +216,13 @@ export default function ChatInterface() {
         if (type === 'exec_result') {
             const queryResult = results.length > 0 ? results[0] : { columns: [], values: [] };
             
-            const dataSummary = JSON.stringify(queryResult, null, 2);
+            const dataSummary = JSON.stringify(queryResult.values.map(row => {
+                let obj = {};
+                queryResult.columns.forEach((col, i) => {
+                    obj[col] = row[i];
+                });
+                return obj;
+            }), null, 2);
 
             const reportInput = {
                 query: clarificationResponse.clarifiedQuestion,

@@ -1,44 +1,69 @@
 
-// sql-worker.js
-importScripts("https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js");
+importScripts('https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js');
+import * as xlsx from 'xlsx';
+
+let db = null;
+
+const initSqlJsAndDb = async () => {
+    try {
+        const SQL = await initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
+        db = new SQL.Database();
+        postMessage({ type: 'ready' });
+    } catch (err) {
+        postMessage({ type: 'error', error: err.message });
+    }
+};
+
 
 self.onmessage = async (event) => {
-  const { action, payload } = event.data;
-
-  if (action === "init") {
-    try {
-      const SQL = await initSqlJs({ locateFile: file => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}` });
-      self.db = new SQL.Database();
-      self.postMessage({ type: "init_success" });
-    } catch (error) {
-      self.postMessage({ type: "error", error: error.message });
+    if (!db && event.data.action !== 'init') {
+        await initSqlJsAndDb();
     }
-  }
+    
+    const { action, payload } = event.data;
 
-  if (action === "create_table") {
-    const { schema, data } = payload;
     try {
-      self.db.exec(schema);
-      const stmt = self.db.prepare(`INSERT INTO data VALUES (${Object.keys(data[0]).map(() => '?').join(',')})`);
-      data.forEach(row => {
-        stmt.run(Object.values(row).map(value => typeof value === 'object' ? JSON.stringify(value) : value));
-      });
-      stmt.free();
-      self.postMessage({ type: "create_table_success" });
-    } catch (error) {
-        console.error("Worker Error:", error);
-      self.postMessage({ type: "error", error: error.message });
-    }
-  }
+        switch (action) {
+            case 'init':
+                await initSqlJsAndDb();
+                break;
+            case 'create_table': {
+                const { schema, data } = payload;
+                db.exec(schema);
+                
+                const sanitizedData = data.map(row => {
+                  const newRow = {};
+                  for (const key in row) {
+                    const sanitizedKey = key.replace(/[^a-zA-Z0-9_]/g, '_');
+                    newRow[sanitizedKey] = row[key];
+                  }
+                  return newRow;
+                });
 
-  if (action === "exec") {
-    const { sql } = payload;
-    try {
-      const results = self.db.exec(sql);
-      self.postMessage({ type: "exec_result", results });
-    } catch (error) {
-      console.error("Worker Error:", error);
-      self.postMessage({ type: "error", error: error.message });
+                if (sanitizedData.length > 0) {
+                    const columns = Object.keys(sanitizedData[0]).map(key => `\`${key}\``).join(',');
+                    const placeholders = Object.keys(sanitizedData[0]).map(() => '?').join(',');
+                    const stmt = db.prepare(`INSERT INTO data (${columns}) VALUES (${placeholders})`);
+                    
+                    sanitizedData.forEach(row => {
+                        stmt.run(Object.values(row));
+                    });
+
+                    stmt.free();
+                }
+                postMessage({ type: 'table_created' });
+                break;
+            }
+            case 'exec': {
+                const { sql } = payload;
+                const results = db.exec(sql);
+                postMessage({ type: 'exec_result', results: results });
+                break;
+            }
+            default:
+                postMessage({ type: 'error', error: 'Unknown action' });
+        }
+    } catch (err) {
+        postMessage({ type: 'error', error: err.message });
     }
-  }
 };
