@@ -138,18 +138,24 @@ export default function ChatInterface() {
         ),
       };
       setMessages(prev => [...prev, assistantResponse]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error generating report:', error);
+
+      let errorMessage = "I'm sorry, I wasn't able to process that request. Please try asking in a different way.";
+      if (error.message && error.message.includes('503 Service Unavailable')) {
+        errorMessage = "The analysis service is temporarily unavailable. Please try again in a few moments.";
+      }
+      
       toast({
         variant: 'destructive',
         title: 'Analysis Error',
-        description:
-          'There was an error analyzing your data. Please try again.',
+        description: 'There was an error analyzing your data. Please try again.',
       });
+
        const assistantError: Message = {
         id: Date.now().toString() + '-error',
         role: 'assistant',
-        content: "I'm sorry, I wasn't able to process that request. Please try asking in a different way."
+        content: errorMessage
       };
       setMessages(prev => [...prev, assistantError]);
     } finally {
