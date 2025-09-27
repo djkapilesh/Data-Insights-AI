@@ -15,19 +15,15 @@ import { useToast } from '@/hooks/use-toast';
 import { ChatMessage } from './chat-message';
 import {
   realTimeFeedbackAndValueCompletion,
-  type RealTimeFeedbackAndValueCompletionOutput,
 } from '@/ai/flows/real-time-feedback-and-value-completion';
 import * as xlsx from 'xlsx';
-import { Visualization } from './visualization';
 
 type Status = 'awaiting_upload' | 'chatting';
-type VisualizationData = RealTimeFeedbackAndValueCompletionOutput['visualization'];
 
 type Message = {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string | React.ReactNode;
-  visualization?: VisualizationData;
 };
 
 // Helper to convert Excel serial date to a readable format
@@ -153,12 +149,11 @@ export default function ChatInterface() {
       
       let assistantResponse: Message;
 
-      if (response.result || response.visualization) {
+      if (response.result) {
         assistantResponse = {
           id: Date.now().toString() + '-2',
           role: 'assistant',
           content: response.result || '',
-          visualization: response.visualization,
         };
       } else if (response.missingValues && response.missingValues.length > 0) {
         assistantResponse = {
@@ -236,7 +231,6 @@ export default function ChatInterface() {
                   isAnalyzing={isAnalyzing}
                 >
                   {message.content}
-                  {message.visualization && <Visualization data={message.visualization} />}
                 </ChatMessage>
               ))}
               {isAnalyzing && (
