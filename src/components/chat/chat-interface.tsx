@@ -11,21 +11,19 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { ChatMessage } from './chat-message';
-import { realTimeFeedbackAndValueCompletion } from '@/ai/flows/real-time-feedback-and-value-completion';
+import { ChatMessage, type Message } from './chat-message';
 import * as xlsx from 'xlsx';
+import { clarifyAmbiguousQuestion, ClarifyAmbiguousQuestionInput } from '@/ai/flows/ambiguous-question-clarification';
+import { naturalLanguageQueryToSQL } from '@/ai/flows/natural-language-query-to-sql';
+import { generateDataInsightsReport } from '@/ai/flows/generate-data-insights-report';
 
 type Status = 'awaiting_upload' | 'chatting';
-type Message = {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string | React.ReactNode;
-};
 
 export default function ChatInterface() {
   const [status, setStatus] = useState<Status>('awaiting_upload');
   const [fileName, setFileName] = useState<string | null>(null);
-  const [sheetData, setSheetData] = useState<any>(null);
+  const [sheetData, setSheetData] = useState<any[]>([]);
+  const [tableSchema, setTableSchema] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -37,6 +35,20 @@ export default function ChatInterface() {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [messages]);
+
+  const generateSchema = (data: any[]): string => {
+    if (data.length === 0) return '';
+    const firstRow = data[0];
+    const columns = Object.keys(firstRow).map(key => {
+      const type = typeof firstRow[key];
+      let sql_type = 'TEXT';
+      if (type === 'number') {
+        sql_type = Number.isInteger(firstRow[key]) ? 'INTEGER' : 'REAL';
+      }
+      return `${key} ${sql_type}`;
+    });
+    return `CREATE TABLE data (\n  ${columns.join(',\n  ')}\n);`;
+  };
 
   const handleFileChange = (file: File | null) => {
     if (file) {
@@ -54,7 +66,10 @@ export default function ChatInterface() {
               : xlsx.read(data, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
-            const json = xlsx.utils.sheet_to_json(worksheet);
+            const json = xlsx.utils.sheet_to_json(worksheet) as any[];
+            
+            const schema = generateSchema(json);
+            setTableSchema(schema);
             setSheetData(json);
             setFileName(file.name);
             setStatus('chatting');
@@ -108,39 +123,63 @@ export default function ChatInterface() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isAnalyzing) return;
-
+  
     const userMessage: Message = { id: Date.now().toString(), role: 'user', content: input };
-    setMessages(prev => [...prev, userMessage]);
+    const currentMessages = [...messages, userMessage];
+    setMessages(currentMessages);
     const currentInput = input;
     setInput('');
     setIsAnalyzing(true);
-
+  
     try {
-      const response = await realTimeFeedbackAndValueCompletion({
-        query: currentInput,
-        data: JSON.stringify(sheetData),
-      });
+      const conversationHistory = currentMessages.slice(1).map(msg => ({
+        role: msg.role === 'user' ? 'user' : 'system',
+        content: msg.content as string,
+      }));
 
-      let content = '';
-      if (response.result) {
-        content = response.result;
-      } else if (response.feedback) {
-        content = response.feedback;
-      }
-
-      const assistantResponse: Message = {
-        id: Date.now().toString() + '-4',
-        role: 'assistant',
-        content: (
-          <div className="space-y-4">
-            <p>{content}</p>
-          </div>
-        ),
+      const clarificationInput: ClarifyAmbiguousQuestionInput = {
+        question: currentInput,
+        dataDescription: tableSchema,
+        conversationHistory: conversationHistory,
       };
-      setMessages(prev => [...prev, assistantResponse]);
-    } catch (error: any) {
-      console.error('Error generating report:', error);
 
+      const clarificationResponse = await clarifyAmbiguousQuestion(clarificationInput);
+
+      if (clarificationResponse.requiresClarification) {
+        const assistantClarification: Message = {
+          id: Date.now().toString() + '-clarification',
+          role: 'assistant',
+          content: clarificationResponse.nextQuestion || "Could you please clarify your question?",
+        };
+        setMessages(prev => [...prev, assistantClarification]);
+      } else {
+        const sqlResponse = await naturalLanguageQueryToSQL({
+            query: clarificationResponse.clarifiedQuestion,
+            tableSchema: tableSchema,
+        });
+
+        // This is a simplified simulation. In a real app, you'd execute the SQL against a database.
+        // For now, we'll just use the whole dataset as the "result" for the report.
+        const reportResponse = await generateDataInsightsReport({
+            query: clarificationResponse.clarifiedQuestion,
+            dataSummary: JSON.stringify(sheetData), // Passing all data
+            visualizations: [],
+        });
+  
+        const assistantResponse: Message = {
+          id: Date.now().toString() + '-4',
+          role: 'assistant',
+          content: (
+            <div className="space-y-4">
+              <p>{reportResponse.report}</p>
+            </div>
+          ),
+        };
+        setMessages(prev => [...prev, assistantResponse]);
+      }
+    } catch (error: any) {
+      console.error('Error in chat flow:', error);
+  
       let errorMessage = "I'm sorry, I wasn't able to process that request. Please try asking in a different way.";
       if (error.message && error.message.includes('503 Service Unavailable')) {
         errorMessage = "The analysis service is temporarily unavailable. Please try again in a few moments.";
@@ -151,8 +190,8 @@ export default function ChatInterface() {
         title: 'Analysis Error',
         description: 'There was an error analyzing your data. Please try again.',
       });
-
-       const assistantError: Message = {
+  
+      const assistantError: Message = {
         id: Date.now().toString() + '-error',
         role: 'assistant',
         content: errorMessage
@@ -194,7 +233,7 @@ export default function ChatInterface() {
                 <ChatMessage key={message.id} {...message} isLast={index === messages.length - 1} isAnalyzing={isAnalyzing}/>
               ))}
               {isAnalyzing && (
-                 <ChatMessage role="assistant" content="Analyzing..." isLast={true} isAnalyzing={true} />
+                 <ChatMessage role="assistant" content="Thinking..." isLast={true} isAnalyzing={true} />
               )}
             </div>
             <form onSubmit={handleSubmit} className="mt-6 flex items-center gap-2">

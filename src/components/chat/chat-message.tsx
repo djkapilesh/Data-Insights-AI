@@ -3,9 +3,13 @@
 import { Bot, User, Terminal, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-interface ChatMessageProps {
+export interface Message {
+  id: string;
   role: 'user' | 'assistant' | 'system';
   content: string | React.ReactNode;
+}
+
+interface ChatMessageProps extends Message {
   isLast?: boolean;
   isAnalyzing?: boolean;
 }
@@ -42,7 +46,7 @@ export function ChatMessage({ role, content, isLast, isAnalyzing }: ChatMessageP
         {isAnalyzing && role === 'assistant' ? (
             <div className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Analyzing...</span>
+                <span>Thinking...</span>
             </div>
         ) : typeof content === 'string' ? (
           <p className="whitespace-pre-wrap">{content}</p>

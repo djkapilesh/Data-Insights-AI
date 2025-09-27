@@ -12,7 +12,7 @@ import {z} from 'genkit';
 
 const ClarifyAmbiguousQuestionInputSchema = z.object({
   question: z.string().describe('The ambiguous question asked by the user.'),
-  dataDescription: z.string().describe('A description of the available data.'),
+  dataDescription: z.string().describe('A description of the available data (e.g. a SQL table schema).'),
   conversationHistory: z.array(z.object({
     role: z.enum(['user', 'system']),
     content: z.string(),
@@ -37,24 +37,29 @@ const clarifyAmbiguousQuestionPrompt = ai.definePrompt({
   output: {schema: ClarifyAmbiguousQuestionOutputSchema},
   prompt: `You are a helpful AI assistant that helps clarify ambiguous questions about data.
 
-You will be provided with a question and a description of the available data.
+You will be provided with a question and a description of the available data in the form of a SQL table schema.
 
-Your goal is to determine if the question is ambiguous and requires further clarification.
+Your goal is to determine if the question is ambiguous and requires further clarification from the user.
 
-If the question is clear enough to be answered with the available data, return the clarified question and set requiresClarification to false.
+If the question is clear enough to be answered with the available data, return the original question as the 'clarifiedQuestion' and set 'requiresClarification' to false.
 
-If the question is ambiguous, set requiresClarification to true and generate a nextQuestion to ask the user to clarify their intent.
+If the question is ambiguous (e.g., uses vague terms, refers to columns that don't exist, is open-ended without specifics), set 'requiresClarification' to true and generate a 'nextQuestion' to ask the user to clarify their intent. Your clarifying question should be specific and guide the user toward providing the necessary information.
 
-Consider the conversation history when determining if the question is ambiguous.
+Consider the conversation history when determining if the question is ambiguous. The user might be providing an answer to a previous clarifying question.
 
-Data Description: {{{dataDescription}}}
+Data Description:
+\`\`\`sql
+{{{dataDescription}}}
+\`\`\`
 
 Conversation History:
 {{#each conversationHistory}}
   {{role}}: {{content}}
 {{/each}}
 
-Question: {{{question}}}
+Latest User Question: {{{question}}}
+
+Analyze the latest user question based on the data description and conversation history. Determine if it's clear or needs clarification.
 
 Response (JSON):
 `,

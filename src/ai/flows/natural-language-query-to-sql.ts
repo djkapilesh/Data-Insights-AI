@@ -19,7 +19,7 @@ export type NaturalLanguageQueryToSQLInput = z.infer<
 >;
 
 const NaturalLanguageQueryToSQLOutputSchema = z.object({
-  sqlQuery: z.string().describe('The SQL query that answers the natural language query.'),
+  sqlQuery: z.string().describe('The SQL query that answers the natural language query. The query should be compatible with SQLite.'),
 });
 export type NaturalLanguageQueryToSQLOutput = z.infer<
   typeof NaturalLanguageQueryToSQLOutputSchema
@@ -35,7 +35,20 @@ const naturalLanguageQueryToSQLPrompt = ai.definePrompt({
   name: 'naturalLanguageQueryToSQLPrompt',
   input: {schema: NaturalLanguageQueryToSQLInputSchema},
   output: {schema: NaturalLanguageQueryToSQLOutputSchema},
-  prompt: `You are an expert SQL developer.  Given the following table schema and a natural language query, you will generate an SQL query that answers the question.\n\nTable Schema:\n{{tableSchema}}\n\nNatural Language Query:\n{{query}}\n\nSQL Query: `,
+  prompt: `You are an expert SQL developer. Given the following table schema and a natural language query, you will generate a SQLite-compatible SQL query that answers the question.
+
+Do not use any tables or columns that are not defined in the schema.
+The table is named 'data'.
+
+Table Schema:
+\`\`\`sql
+{{tableSchema}}
+\`\`\`
+
+Natural Language Query:
+{{query}}
+
+SQL Query: `,
 });
 
 const naturalLanguageQueryToSQLFlow = ai.defineFlow(

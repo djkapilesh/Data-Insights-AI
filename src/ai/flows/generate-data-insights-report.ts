@@ -27,7 +27,7 @@ export type GenerateDataInsightsReportInput = z.infer<
 >;
 
 const GenerateDataInsightsReportOutputSchema = z.object({
-  report: z.string().describe('The summarized data insights report.'),
+  report: z.string().describe('The summarized data insights report in Markdown format.'),
 });
 export type GenerateDataInsightsReportOutput = z.infer<
   typeof GenerateDataInsightsReportOutputSchema
@@ -43,12 +43,16 @@ const prompt = ai.definePrompt({
   name: 'generateDataInsightsReportPrompt',
   input: {schema: GenerateDataInsightsReportInputSchema},
   output: {schema: GenerateDataInsightsReportOutputSchema},
-  prompt: `You are an expert data analyst. You are tasked with generating a summarized report of key findings based on a user query and a JSON dataset.
+  prompt: `You are an expert data analyst. You are tasked with generating a summarized report of key findings based on a user query and a JSON dataset that is the result of a SQL query.
 
 User Query: {{{query}}}
 Data: {{{dataSummary}}}
 
-Analyze the data and generate a concise report summarizing the key insights that answer the user's query. The data is in JSON format. Do not just list the data, provide an analysis.
+Analyze the data and generate a concise report in Markdown format that directly answers the user's query.
+- If the data contains a single value or a small number of rows, state the answer directly.
+- If the data is a larger table, summarize the key findings.
+- Do not just list the raw data. Provide a clear, insightful, and human-readable analysis.
+- If the data appears empty or doesn't seem to answer the query, state that you couldn't find a specific answer in the data.
 `,
 });
 
