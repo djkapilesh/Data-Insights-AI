@@ -30,9 +30,25 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  // Turbopack specific configuration
+  turbo: {
+    resolveAlias: {
+      // Turbopack needs this to resolve sql.js
+      'sql.js': 'sql.js/dist/sql-wasm.js',
+    },
+    resolveExtensions: [
+      '.mdx',
+      '.tsx',
+      '.ts',
+      '.jsx',
+      '.js',
+      '.mjs',
+      '.json',
+    ],
+  },
   webpack: (config, { isServer }) => {
     // For sql.js
-    config.resolve.fallback = { ...config.resolve.fallback, fs: false, net: false, tls: false };
+    config.resolve.fallback = { ...config.resolve.fallback, fs: false, net: false, tls: false, "path": false };
     if (!isServer) {
         config.output.publicPath = '/_next/';
     }
