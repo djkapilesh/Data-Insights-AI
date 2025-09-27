@@ -30,6 +30,14 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  webpack: (config, { isServer }) => {
+    // For sql.js
+    config.resolve.fallback = { ...config.resolve.fallback, fs: false, net: false, tls: false };
+    if (!isServer) {
+        config.output.publicPath = '/_next/';
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

@@ -18,19 +18,42 @@ import { naturalLanguageQueryToSQL } from '@/ai/flows/natural-language-query-to-
 import { generateDataInsightsReport } from '@/ai/flows/generate-data-insights-report';
 import { Visualization } from '@/components/chat/visualization';
 
-
 type Status = 'awaiting_upload' | 'chatting';
 
 export default function ChatInterface() {
   const [status, setStatus] = useState<Status>('awaiting_upload');
   const [fileName, setFileName] = useState<string | null>(null);
-  const [sheetData, setSheetData] = useState<any[]>([]);
   const [tableSchema, setTableSchema] = useState<string>('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const { toast } = useToast();
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const sqlWorkerRef = useRef<Worker>();
+
+  useEffect(() => {
+    const worker = new Worker('/sql-worker.js');
+    sqlWorkerRef.current = worker;
+
+    worker.onmessage = (event) => {
+      const { type, error } = event.data;
+      if (type === 'error') {
+        console.error('SQL Worker Error:', error);
+        toast({
+          variant: 'destructive',
+          title: 'Database Error',
+          description: 'An error occurred with the in-browser database.',
+        });
+        setIsAnalyzing(false);
+      }
+    };
+
+    worker.postMessage({ action: 'init' });
+
+    return () => {
+      worker.terminate();
+    };
+  }, [toast]);
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -40,14 +63,17 @@ export default function ChatInterface() {
 
   const generateSchema = (data: any[]): string => {
     if (data.length === 0) return '';
-    const firstRow = data[0];
-    const columns = Object.keys(firstRow).map(key => {
-      const type = typeof firstRow[key];
+    // Sanitize column names
+    const headers = Object.keys(data[0]).map(key => key.replace(/[^a-zA-Z0-9_]/g, '_'));
+    
+    const columns = headers.map((header, index) => {
+      const key = Object.keys(data[0])[index];
+      const firstValue = data[0][key];
       let sql_type = 'TEXT';
-      if (type === 'number') {
-        sql_type = Number.isInteger(firstRow[key]) ? 'INTEGER' : 'REAL';
+      if (typeof firstValue === 'number') {
+        sql_type = Number.isInteger(firstValue) ? 'INTEGER' : 'REAL';
       }
-      return `\`${key}\` ${sql_type}`;
+      return `\`${header}\` ${sql_type}`;
     });
     return `CREATE TABLE data (\n  ${columns.join(',\n  ')}\n);`;
   };
@@ -66,11 +92,32 @@ export default function ChatInterface() {
             const workbook = xlsx.read(data, { type: 'array' });
             const sheetName = workbook.SheetNames[0];
             const worksheet = workbook.Sheets[sheetName];
-            const json = xlsx.utils.sheet_to_json(worksheet) as any[];
-            
+            const json = xlsx.utils.sheet_to_json(worksheet, { defval: null }) as any[];
+
+            if (json.length === 0) {
+              toast({ variant: 'destructive', title: 'Empty File', description: 'The uploaded file contains no data.' });
+              return;
+            }
+
             const schema = generateSchema(json);
+            
+            // Sanitize data keys to match schema
+            const sanitizedJson = json.map(row => {
+              const newRow: {[key: string]: any} = {};
+              for (const key in row) {
+                const sanitizedKey = key.replace(/[^a-zA-Z0-9_]/g, '_');
+                newRow[sanitizedKey] = row[key];
+              }
+              return newRow;
+            });
+            
             setTableSchema(schema);
-            setSheetData(json);
+            
+            sqlWorkerRef.current?.postMessage({
+              action: 'create_table',
+              payload: { schema: schema, data: json }
+            });
+
             setFileName(file.name);
             setStatus('chatting');
             setMessages([
@@ -151,24 +198,55 @@ export default function ChatInterface() {
           content: clarificationResponse.nextQuestion || "Could you please clarify your question?",
         };
         setMessages(prev => [...prev, assistantClarification]);
-      } else {
-        // Since we removed the direct analysis flow, we need to use the SQL generation and reporting flows.
-        // For now, let's just use a simplified analysis for demonstration. A proper implementation
-        // would require an in-memory SQL database or another analysis flow.
-        const reportInput = {
-          query: clarificationResponse.clarifiedQuestion,
-          dataSummary: JSON.stringify(sheetData.slice(0, 5)), // Pass a sample of the data
-          visualizations: [],
-        };
-        const reportResult = await generateDataInsightsReport(reportInput);
-
-        const assistantResponse: Message = {
-          id: Date.now().toString() + '-4',
-          role: 'assistant',
-          content: reportResult.report,
-        };
-        setMessages(prev => [...prev, assistantResponse]);
+        setIsAnalyzing(false);
+        return;
       }
+      
+      const sqlResponse = await naturalLanguageQueryToSQL({
+        query: clarificationResponse.clarifiedQuestion,
+        tableSchema: tableSchema,
+      });
+
+      const sqlQuery = sqlResponse.sqlQuery;
+      
+      const worker = sqlWorkerRef.current;
+      if (!worker) {
+          throw new Error("SQL worker is not available.");
+      }
+
+      worker.onmessage = async (event) => {
+        const { type, results, error } = event.data;
+        if (type === 'exec_result') {
+            const queryResult = results.length > 0 ? results[0] : { columns: [], values: [] };
+            
+            const dataSummary = JSON.stringify(queryResult, null, 2);
+
+            const reportInput = {
+                query: clarificationResponse.clarifiedQuestion,
+                dataSummary: dataSummary,
+                visualizations: [],
+            };
+            const reportResult = await generateDataInsightsReport(reportInput);
+
+            const assistantResponse: Message = {
+                id: Date.now().toString() + '-report',
+                role: 'assistant',
+                content: <Visualization query={clarificationResponse.clarifiedQuestion} report={reportResult.report} data={queryResult} />,
+            };
+            setMessages(prev => [...prev, assistantResponse]);
+        } else if (type === 'error') {
+            console.error('SQL Execution Error:', error);
+            toast({
+                variant: 'destructive',
+                title: 'SQL Error',
+                description: `There was an error executing the query: ${error}`,
+            });
+        }
+        setIsAnalyzing(false);
+      };
+
+      worker.postMessage({ action: 'exec', payload: { sql: sqlQuery } });
+
     } catch (error: any) {
       console.error('Error in chat flow:', error);
   
@@ -189,7 +267,6 @@ export default function ChatInterface() {
         content: errorMessage
       };
       setMessages(prev => [...prev, assistantError]);
-    } finally {
       setIsAnalyzing(false);
     }
   };
