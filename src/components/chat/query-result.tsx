@@ -63,7 +63,7 @@ export function QueryResult({ result }: QueryResultProps) {
         <CardHeader>
           <CardTitle className="text-base font-medium">Query Result</CardTitle>
         </CardHeader>
-        <CardContent className="h-[300px] w-full p-0">
+        <CardContent className="h-[400px] w-full p-0">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart
               data={chartData}
