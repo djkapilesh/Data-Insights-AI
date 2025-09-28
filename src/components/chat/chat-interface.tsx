@@ -157,18 +157,30 @@ export default function ChatInterface() {
     setIsAnalyzing(true);
 
     try {
-      // 1. Get column suggestions from AI
-      const chartColumnsResponse = await identifyChartingColumns({
-        query: currentInput,
-        columnNames: columnNames,
-      });
+      const dataSummaryForAI = JSON.stringify(sheetData.slice(0, 500)); // Send a large sample or whole data
+
+      // 1. Get chart suggestions AND text analysis from AI in parallel
+      const [chartColumnsResponse, analysisResponse] = await Promise.all([
+        identifyChartingColumns({
+          query: currentInput,
+          data: dataSummaryForAI,
+          columnNames: columnNames,
+        }),
+        realTimeFeedbackAndValueCompletion({
+            query: currentInput,
+            queryResult: dataSummaryForAI,
+            conversationHistory: messages.map(msg => ({
+              role: msg.role,
+              content: typeof msg.content === 'string' ? msg.content : "A visualization was displayed.",
+            })).filter(msg => msg.role !== 'system')
+        })
+      ]);
 
       const { categoryColumn, valueColumn, isChartable } = chartColumnsResponse;
       let queryResultForDisplay: QueryResultData | undefined;
-      let analysisInput = "The user's query did not result in a chart.";
 
       if (isChartable && categoryColumn && valueColumn && sheetData) {
-        // 2. Process data for charting
+        // 2. Process data for charting on the client
         const aggregationMap = new Map<string, number>();
         const isCounting = categoryColumn === valueColumn;
         
@@ -195,21 +207,8 @@ export default function ChatInterface() {
             columns: [categoryColumn, isCounting ? 'count' : valueColumn],
             values: aggregatedValues,
           };
-          analysisInput = JSON.stringify(aggregatedValues.map(row => ({[categoryColumn]: row[0], [isCounting ? 'count' : valueColumn]: row[1]})));
         }
       }
-
-      // 3. Get text analysis from AI
-      const conversationHistory = messages.map(msg => ({
-        role: msg.role,
-        content: typeof msg.content === 'string' ? msg.content : "A visualization was displayed.",
-      })).filter(msg => msg.role !== 'system');
-      
-      const analysisResponse = await realTimeFeedbackAndValueCompletion({
-          query: currentInput,
-          queryResult: analysisInput,
-          conversationHistory: conversationHistory
-      });
 
       const assistantMessages: Message[] = [];
       if (analysisResponse.result) {

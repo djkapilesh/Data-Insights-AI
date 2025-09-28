@@ -15,6 +15,7 @@ const IdentifyChartingColumnsInputSchema = z.object({
   columnNames: z
     .array(z.string())
     .describe('The available column names in the dataset.'),
+  data: z.string().describe('A JSON string representing a sample of the data, or the full data.'),
 });
 export type IdentifyChartingColumnsInput = z.infer<
   typeof IdentifyChartingColumnsInputSchema
@@ -51,7 +52,7 @@ const prompt = ai.definePrompt({
   name: 'identifyChartingColumnsPrompt',
   input: {schema: IdentifyChartingColumnsInputSchema},
   output: {schema: IdentifyChartingColumnsOutputSchema},
-  prompt: `You are a data analysis expert. Your task is to identify the best columns for creating a 2D chart based on a user's query and a list of available column names.
+  prompt: `You are a data analysis expert. Your task is to identify the best columns for creating a 2D chart based on a user's query and a list of available column names from a dataset.
 
 You need to select one categorical column (for the X-axis) and one numerical column (for the Y-axis).
 
@@ -60,7 +61,7 @@ You need to select one categorical column (for the X-axis) and one numerical col
 
 If the query is asking for a count of items in a category (e.g., "how many products in each category?"), the valueColumn should be the same as the categoryColumn, as we will count its occurrences.
 
-Analyze the user's query and the column names provided.
+Analyze the user's query, the available columns, and the sample data to make your decision.
 
 If a reasonable chart can be created to answer the query, set 'isChartable' to true and provide the identified 'categoryColumn' and 'valueColumn'.
 
@@ -70,6 +71,9 @@ Available Columns:
 {{#each columnNames}}
 - {{{this}}}
 {{/each}}
+
+Sample Data (JSON):
+{{{data}}}
 
 User Query: "{{query}}"
 `,

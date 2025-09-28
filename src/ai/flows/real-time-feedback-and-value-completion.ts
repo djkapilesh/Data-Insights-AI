@@ -35,9 +35,11 @@ const prompt = ai.definePrompt({
   name: 'realTimeFeedbackAndValueCompletionPrompt',
   input: {schema: RealTimeFeedbackAndValueCompletionInputSchema},
   output: {schema: RealTimeFeedbackAndValueCompletionOutputSchema},
-  prompt: `You are an AI data analysis assistant. You are provided with a dataset and a query from the user. You also have the conversation history.
+  prompt: `You are an AI data analysis assistant. You are provided with a dataset (as a JSON string) and a query from the user. You also have the conversation history.
 
 Your primary goal is to provide a concise and accurate text-based analysis of the provided data to answer the user's query.
+
+Analyze the entire dataset to answer the user's question. For example, if the user asks "how many debits", you should look for columns that might represent transaction types or amounts and perform the calculation.
 
 Do not just restate the data from the query result. Provide insights, summaries, or explanations based on the data in relation to the user's question.
 
@@ -48,8 +50,8 @@ Conversation History:
     {{role}}: {{content}}
 {{/each}}
 
-Query Result Data: {{{queryResult}}}
-User's Original Query: {{{query}}}
+Data (JSON format): {{{queryResult}}}
+User's Query: {{{query}}}
 `,
 });
 
