@@ -296,7 +296,7 @@ export default function ChatInterface() {
           <div className="flex flex-col h-full w-full">
             <div
               ref={chatContainerRef}
-              className="flex-1 overflow-y-auto pr-4 -mr-4 space-y-6"
+              className="flex-1 overflow-y-auto pr-4 space-y-6"
             >
               {messages.map((message, index) => (
                 <ChatMessage
