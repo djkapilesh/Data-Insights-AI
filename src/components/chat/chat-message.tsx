@@ -21,6 +21,11 @@ export function ChatMessage({ role, children, isLast, isAnalyzing }: ChatMessage
   const isUser = role === 'user';
   const isSystem = role === 'system';
 
+  // A check to see if a child is a complex component (like the QueryResult) vs. a simple string.
+  const hasComplexChild = React.Children.toArray(children).some(
+    (child) => React.isValidElement(child) && typeof child.type !== 'string'
+  );
+
   return (
     <div
       className={cn('flex items-start gap-4', {
@@ -37,11 +42,8 @@ export function ChatMessage({ role, children, isLast, isAnalyzing }: ChatMessage
         <Icon className="w-5 h-5" />
       </div>
       <div
-        className={cn('p-3 rounded-lg max-w-[85%] w-fit', {
-          'bg-primary/10': !isUser,
-          'bg-secondary': isUser,
-          'w-full text-xs text-muted-foreground': isSystem,
-          'p-0 bg-transparent': typeof children !== 'string' // No padding/bg for complex components
+        className={cn('max-w-[85%] w-fit', {
+          'w-full': hasComplexChild, // Allow complex children to take full width
         })}
       >
         {isAnalyzing && role === 'assistant' && React.Children.count(children) === 1 && typeof children === 'string' && children === "Analyzing..." ? (
@@ -51,11 +53,14 @@ export function ChatMessage({ role, children, isLast, isAnalyzing }: ChatMessage
           </div>
         ) : (
           <div className="flex flex-col gap-4">
-            {React.Children.toArray(children).filter(Boolean).map((child, i) => (
+            {React.Children.toArray(children).filter(Boolean).map((child, i) => {
+               const isComplexElement = React.isValidElement(child) && typeof child.type !== 'string';
+               return (
                 <div key={i} className={cn("whitespace-pre-wrap", {
-                  'p-3 rounded-lg bg-primary/10': typeof child === 'string'
+                  'p-3 rounded-lg bg-primary/10': !isComplexElement, // Only apply bubble style to simple text
                 })}>{child}</div>
-            ))}
+               );
+            })}
           </div>
         )}
       </div>
